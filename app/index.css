@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -25,9 +25,9 @@
   --ring: hsl(184, 66%, 26%);
   --chart-1: hsl(184, 66%, 26%);
   --chart-2: hsl(159.7826, 100%, 36.0784%);
-  --chart-3: hsl(42.0290, 92.8251%, 56.2745%);
+  --chart-3: hsl(42.029, 92.8251%, 56.2745%);
   --chart-4: hsl(147.1429, 78.5047%, 41.9608%);
-  --chart-5: hsl(341.4894, 75.2000%, 50.9804%);
+  --chart-5: hsl(341.4894, 75.2%, 50.9804%);
   --sidebar: hsl(0, 0%, 100%);
   --sidebar-foreground: hsl(222.2, 84%, 4.9%);
   --sidebar-primary: hsl(184, 66%, 26%);
@@ -36,18 +36,23 @@
   --sidebar-accent-foreground: hsl(222.2, 84%, 4.9%);
   --sidebar-border: hsl(214.3, 31.8%, 91.4%);
   --sidebar-ring: hsl(184, 66%, 26%);
-  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
   --radius: 0.75rem;
-  --shadow-2xs: 0px 2px 0px 0px hsl(184, 66%, 26% / 0.00);
-  --shadow-xs: 0px 2px 0px 0px hsl(184, 66%, 26% / 0.00);
-  --shadow-sm: 0px 2px 0px 0px hsl(184, 66%, 26% / 0.00), 0px 1px 2px -1px hsl(184, 66%, 26% / 0.00);
-  --shadow: 0px 2px 0px 0px hsl(184, 66%, 26% / 0.00), 0px 1px 2px -1px hsl(184, 66%, 26% / 0.00);
-  --shadow-md: 0px 2px 0px 0px hsl(184, 66%, 26% / 0.00), 0px 2px 4px -1px hsl(184, 66%, 26% / 0.00);
-  --shadow-lg: 0px 2px 0px 0px hsl(184, 66%, 26% / 0.00), 0px 4px 6px -1px hsl(184, 66%, 26% / 0.00);
-  --shadow-xl: 0px 2px 0px 0px hsl(184, 66%, 26% / 0.00), 0px 8px 10px -1px hsl(184, 66%, 26% / 0.00);
-  --shadow-2xl: 0px 2px 0px 0px hsl(184, 66%, 26% / 0.00);
+  --shadow-2xs: 0px 2px 0px 0px hsl(184, 66%, 26% / 0);
+  --shadow-xs: 0px 2px 0px 0px hsl(184, 66%, 26% / 0);
+  --shadow-sm: 0px 2px 0px 0px hsl(184, 66%, 26% / 0),
+    0px 1px 2px -1px hsl(184, 66%, 26% / 0);
+  --shadow: 0px 2px 0px 0px hsl(184, 66%, 26% / 0),
+    0px 1px 2px -1px hsl(184, 66%, 26% / 0);
+  --shadow-md: 0px 2px 0px 0px hsl(184, 66%, 26% / 0),
+    0px 2px 4px -1px hsl(184, 66%, 26% / 0);
+  --shadow-lg: 0px 2px 0px 0px hsl(184, 66%, 26% / 0),
+    0px 4px 6px -1px hsl(184, 66%, 26% / 0);
+  --shadow-xl: 0px 2px 0px 0px hsl(184, 66%, 26% / 0),
+    0px 8px 10px -1px hsl(184, 66%, 26% / 0);
+  --shadow-2xl: 0px 2px 0px 0px hsl(184, 66%, 26% / 0);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 }
@@ -91,48 +96,66 @@
     background: rgba(255, 255, 255, 0.75);
     border: 1px solid rgba(255, 255, 255, 0.125);
   }
-  
+
   .gradient-overlay {
-    background: linear-gradient(135deg, rgba(13, 115, 119, 0.1) 0%, rgba(244, 162, 97, 0.1) 100%);
+    background: linear-gradient(
+      135deg,
+      rgba(13, 115, 119, 0.1) 0%,
+      rgba(244, 162, 97, 0.1) 100%
+    );
   }
-  
+
   .shimmer {
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.4),
+      transparent
+    );
     animation: shimmer 1.5s infinite;
   }
-  
+
   .floating-btn {
     box-shadow: 0 8px 32px rgba(13, 115, 119, 0.3);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
-  
+
   .floating-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 12px 40px rgba(13, 115, 119, 0.4);
   }
-  
+
   .product-card {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
-  
+
   .product-card:hover {
     transform: translateY(-4px);
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
   }
-  
+
   .time-indicator {
     animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 }
 
 @keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* Mobile-first responsive utilities */
