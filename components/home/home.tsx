@@ -9,11 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TimeBanner } from "@/components/ui/time-banner";
-import { CategoryTabs } from "@/components/ui/category-tabs";
 import { ProductCard } from "@/components/ui/product-card";
-import { AIRecommendations } from "@/components/ui/ai-recommendations";
-import { FloatingCart } from "@/components/ui/floating-cart";
-import { CartModal } from "@/components/ui/cart-modal";
+import { AIRecommendations } from "@/components/ai-recommendations";
+import { FloatingCart } from "@/components/floating-cart";
+import { CartModal } from "@/components/cart-modal";
 import {
   Search,
   SlidersHorizontal,
@@ -31,10 +30,14 @@ import {
   Package,
   Gift,
   Percent,
+  Check,
+  ChevronDown,
+  Filter,
 } from "lucide-react";
 import { useTimeSlot } from "@/hooks/use-time-slot";
 import { useAuth } from "@/hooks/use-auth";
-import type { Product } from "@/types";
+import { FirebaseProductService } from "@/lib/firebase-products";
+import type { Product, CategoryReference } from "@/types";
 import Image from "next/image";
 
 // Static notifications data
@@ -49,7 +52,7 @@ const STATIC_NOTIFICATIONS = [
     unread: true,
   },
   {
-    id: "2", 
+    id: "2",
     title: "Special Offer! 🔥",
     message: "Get 40% off on all vegetables today only",
     time: "1 hour ago",
@@ -61,7 +64,7 @@ const STATIC_NOTIFICATIONS = [
     id: "3",
     title: "New Arrival! ✨",
     message: "Fresh organic fruits now available in your area",
-    time: "3 hours ago", 
+    time: "3 hours ago",
     type: "info",
     icon: Gift,
     unread: false,
@@ -71,7 +74,7 @@ const STATIC_NOTIFICATIONS = [
     title: "Delivery Update",
     message: "Your evening order will arrive in 15 minutes",
     time: "5 hours ago",
-    type: "update", 
+    type: "update",
     icon: Clock,
     unread: false,
   },
@@ -96,108 +99,200 @@ export default function Home() {
   const [notifications, setNotifications] = useState(STATIC_NOTIFICATIONS);
   const [location, setLocation] = useState<LocationState>({
     city: "Bolpur",
-    state: "West Bengal", 
+    state: "West Bengal",
     loading: true,
     error: null,
   });
+  const [profileImageError, setProfileImageError] = useState(false);
 
   const { currentTimeSlot } = useTimeSlot();
 
-  // Fetch user's current location
-  useEffect(() => {
-    const fetchLocation = async () => {
-      if (!navigator.geolocation) {
-        setLocation(prev => ({
-          ...prev,
-          loading: false,
-          error: "Geolocation not supported"
-        }));
-        return;
+  // Enhanced location fetching with improved accuracy
+useEffect(() => {
+  const fetchLocation = async () => {
+    // Check sessionStorage first
+    const storedLocation = sessionStorage.getItem("userLocation");
+    if (storedLocation) {
+      const { city, state } = JSON.parse(storedLocation);
+      setLocation({
+        city,
+        state,
+        loading: false,
+        error: null,
+      });
+      return; // Skip API call if data already exists
+    }
+
+    // console.log("🌍 Starting location fetch...");
+
+    if (!navigator.geolocation) {
+      // console.log("❌ Geolocation not supported");
+      setLocation((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Geolocation not supported",
+      }));
+      return;
+    }
+
+    try {
+      // console.log("📍 Getting coordinates...");
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          timeout: 15000,
+          enableHighAccuracy: true,
+          maximumAge: 300000, // 5 minutes
+        });
+      });
+
+      const { latitude, longitude } = position.coords;
+      // console.log(`📍 Got coordinates: ${latitude}, ${longitude}`);
+
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+      // console.log("🔑 API Key exists:", !!apiKey);
+
+      const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${apiKey}&result_type=street_address|sublocality_level_1|sublocality_level_2|locality|administrative_area_level_3`;
+      // console.log("🌐 Fetching geocode data...");
+
+      const response = await fetch(geocodeUrl);
+      // console.log("📡 Geocode response status:", response.status);
+
+      if (!response.ok) {
+        throw new Error(`Geocoding failed with status: ${response.status}`);
       }
 
-      try {
-        // First try to get coordinates
-        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            timeout: 10000,
-            enableHighAccuracy: true
-          });
-        });
+      const data = await response.json();
+      // console.log("🗺️ Geocode response:", data);
 
-        const { latitude, longitude } = position.coords;
+      if (data.results && data.results.length > 0) {
+        let city = "Bolpur";
+        let state = "West Bengal";
 
-        // Use Google Maps Geocoding API to get city and state
-        const response = await fetch(
-          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
-        );
-
-        if (!response.ok) {
-          throw new Error("Geocoding failed");
-        }
-
-        const data = await response.json();
-        
-        if (data.results && data.results.length > 0) {
-          const result = data.results[0];
+        // Look through all results to find the most specific location
+        for (const result of data.results.slice(0, 3)) {
           const addressComponents = result.address_components;
-          
-          let city = "Bolpur";
-          let state = "West Bengal";
-          
-          // Extract city and state from address components
-          addressComponents.forEach((component: any) => {
-            if (component.types.includes("locality") || component.types.includes("administrative_area_level_2")) {
-              city = component.long_name;
-            }
+          // console.log("🔍 Checking result:", result.formatted_address);
+
+          const cityTypes = [
+            "sublocality_level_1",
+            "sublocality_level_2",
+            "sublocality",
+            "locality",
+            "administrative_area_level_3",
+            "administrative_area_level_2",
+            "postal_town",
+            "neighborhood",
+          ];
+
+          // Find state
+          for (const component of addressComponents) {
             if (component.types.includes("administrative_area_level_1")) {
               state = component.long_name;
+              // console.log("🏛️ Found state:", state);
+              break;
             }
-          });
+          }
 
-          setLocation({
-            city,
-            state,
-            loading: false,
-            error: null,
-          });
-        } else {
-          throw new Error("No location data found");
+          // Find city/locality
+          for (const cityType of cityTypes) {
+            for (const component of addressComponents) {
+              if (component.types.includes(cityType)) {
+                const potentialCity = component.long_name;
+                if (
+                  potentialCity !== state &&
+                  !potentialCity.includes("Division") &&
+                  !potentialCity.includes("District") &&
+                  potentialCity.length > 2
+                ) {
+                  city = potentialCity;
+                  // console.log(`🏙️ Found city from ${cityType}:`, city);
+                  break;
+                }
+              }
+            }
+            if (city !== "Bolpur") break;
+          }
+
+          if (city !== "Bolpur") break;
         }
-      } catch (error) {
-        console.error("Location fetch error:", error);
-        setLocation(prev => ({
-          ...prev,
-          loading: false,
-          error: "Could not fetch location"
-        }));
-      }
-    };
 
-    fetchLocation();
-  }, []);
+        // console.log(`✅ Final location: ${city}, ${state}`);
+
+        // Save location to sessionStorage
+        sessionStorage.setItem(
+          "userLocation",
+          JSON.stringify({ city, state })
+        );
+
+        setLocation({
+          city,
+          state,
+          loading: false,
+          error: null,
+        });
+      } else {
+        throw new Error("No location data found");
+      }
+    } catch (error: any) {
+      // console.error("❌ Location fetch error:", error);
+      setLocation((prev) => ({
+        ...prev,
+        loading: false,
+        error: `Could not fetch location: ${error.message}`,
+      }));
+    }
+  };
+
+  fetchLocation();
+}, []);
+
+
+  // Fetch products using React Query
+  const {
+    data: products = [],
+    isLoading: productsLoading,
+    isError: productsError,
+    refetch: refetchProducts,
+  } = useQuery<Product[]>({
+    queryKey: ["products", searchQuery, selectedCategory, currentTimeSlot],
+    queryFn: () =>
+      FirebaseProductService.getProducts(searchQuery, selectedCategory),
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  // Fetch available categories for current time slot
+  const { data: availableCategories = [] } = useQuery<CategoryReference[]>({
+    queryKey: ["availableCategories", currentTimeSlot],
+    queryFn: () => FirebaseProductService.getAvailableCategories(),
+    refetchOnWindowFocus: false,
+    staleTime: 10 * 60 * 1000, // 10 minutes
+  });
 
   // Handle notification bell click
   const handleNotificationClick = () => {
     setShowNotifications(!showNotifications);
     if (!showNotifications) {
-      // Mark notifications as read when opened
-      setNotifications(prev => 
-        prev.map(notif => ({ ...notif, unread: false }))
+      setNotifications((prev) =>
+        prev.map((notif) => ({ ...notif, unread: false }))
       );
     }
   };
 
-  // Count unread notifications
-  const unreadCount = notifications.filter(n => n.unread).length;
+  const unreadCount = notifications.filter((n) => n.unread).length;
 
-  // Get notification icon color based on type
   const getNotificationIconColor = (type: string) => {
     switch (type) {
-      case "success": return "text-green-600";
-      case "offer": return "text-orange-600"; 
-      case "info": return "text-blue-600";
-      case "update": return "text-purple-600";
-      default: return "text-gray-600";
+      case "success":
+        return "text-green-600";
+      case "offer":
+        return "text-orange-600";
+      case "info":
+        return "text-blue-600";
+      case "update":
+        return "text-purple-600";
+      default:
+        return "text-gray-600";
     }
   };
 
@@ -207,6 +302,7 @@ export default function Home() {
 
   const handleCategorySelect = (categoryId: string) => {
     setSelectedCategory(categoryId === selectedCategory ? "" : categoryId);
+    setShowFilters(false); // Close dropdown after selection
   };
 
   const toggleFilters = () => {
@@ -224,13 +320,49 @@ export default function Home() {
   const handleAuthClick = () => {
     router.push("/auth");
   };
-console.log(user);
+
+  const getUserId = () => {
+    if (isAuthenticated && user) {
+      return user.uid;
+    }
+    return "guest-user";
+  };
+
+  const clearAllFilters = () => {
+    setSelectedCategory("");
+    setSearchQuery("");
+    setShowFilters(false);
+  };
+
+  const selectedCategoryName = availableCategories.find(
+    (cat) => cat.id === selectedCategory
+  )?.name;
+
+  // Get profile image URL with fallbacks
+  const getProfileImageUrl = () => {
+    if (!user) return null;
+    
+    // Try custom avatar first, then photoURL, then fallback
+    return user.customData?.avatar || 
+           user.photoURL || 
+           "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS8oghbsuzggpkknQSSU-Ch_xep_9v3m6EeBQ&s";
+  };
+
+  console.log("🔍 Debug Info:", {
+    user,
+    isAuthenticated,
+    products: products.length,
+    availableCategories: availableCategories.length,
+    searchQuery,
+    selectedCategory,
+    profileImageUrl: getProfileImageUrl(),
+  });
 
   return (
     <div className="mobile-container border">
       {/* Navigation Header */}
       <header
-        className="sticky top-0 z-50 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/70 border-b border-border/50"
+        className="sticky top-0 z-[100] bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/70 border-b border-border/50"
         data-testid="navigation-header"
       >
         <div className="flex items-center justify-between p-4">
@@ -249,12 +381,14 @@ console.log(user);
                     <div className="w-16 h-3 bg-gray-200 rounded animate-pulse"></div>
                   </div>
                 ) : (
-                  <span>{location.city}, {location.state}</span>
+                  <span>
+                    {location.city}, {location.state}
+                  </span>
                 )}
               </div>
             </div>
           </div>
-          
+
           <div className="flex items-center space-x-2">
             {/* Notification Bell */}
             <div className="relative">
@@ -268,21 +402,23 @@ console.log(user);
                 <Bell size={20} />
                 {unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-white text-xs rounded-full flex items-center justify-center font-medium">
-                    {unreadCount > 9 ? '9+' : unreadCount}
+                    {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 )}
               </Button>
 
               {/* Notification Dropdown */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-50 animate-in slide-in-from-top-2 duration-200">
+                <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-[60] animate-in slide-in-from-top-2 duration-200">
                   <div className="p-4 border-b border-gray-100">
                     <h3 className="font-semibold text-lg">Notifications</h3>
                     <p className="text-sm text-muted-foreground">
-                      {unreadCount > 0 ? `${unreadCount} new notifications` : 'All caught up!'}
+                      {unreadCount > 0
+                        ? `${unreadCount} new notifications`
+                        : "All caught up!"}
                     </p>
                   </div>
-                  
+
                   <div className="max-h-96 overflow-y-auto">
                     {notifications.map((notification) => {
                       const IconComponent = notification.icon;
@@ -290,32 +426,42 @@ console.log(user);
                         <div
                           key={notification.id}
                           className={`p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors ${
-                            notification.unread ? 'bg-blue-50/50' : ''
+                            notification.unread ? "bg-blue-50/50" : ""
                           }`}
                         >
                           <div className="flex items-start space-x-3">
-                            <div className={`p-2 rounded-full bg-gray-100 ${getNotificationIconColor(notification.type)}`}>
+                            <div
+                              className={`p-2 rounded-full bg-gray-100 ${getNotificationIconColor(
+                                notification.type
+                              )}`}
+                            >
                               <IconComponent size={16} />
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center space-x-2">
-                                <h4 className="font-medium text-sm truncate">{notification.title}</h4>
+                                <h4 className="font-medium text-sm truncate">
+                                  {notification.title}
+                                </h4>
                                 {notification.unread && (
                                   <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
                                 )}
                               </div>
-                              <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
-                              <p className="text-xs text-gray-400 mt-2">{notification.time}</p>
+                              <p className="text-sm text-gray-600 mt-1">
+                                {notification.message}
+                              </p>
+                              <p className="text-xs text-gray-400 mt-2">
+                                {notification.time}
+                              </p>
                             </div>
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                  
+
                   <div className="p-3 border-t border-gray-100">
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       className="w-full text-sm"
                       onClick={() => setShowNotifications(false)}
                     >
@@ -333,27 +479,29 @@ console.log(user);
               <Button
                 variant="ghost"
                 size="icon"
-                className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/20"
+                className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/20 p-0"
                 onClick={() => router.push("/account")}
                 data-testid="profile-button"
               >
-                {user.customData?.avatar || user.photoURL ? (
-                  <Image
-                    src={user.customData?.avatar || user.photoURL || "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS8oghbsuzggpkknQSSU-Ch_xep_9v3m6EeBQ&s"}
+                {getProfileImageUrl() && !profileImageError ? (
+                  <img
+                    src={getProfileImageUrl()!}
                     alt="Profile"
-                      className="w-full h-full object-cover"
-                    width={40}
-                    height={40}
+                    className="w-full h-full object-cover rounded-full"
+                    onError={() => setProfileImageError(true)}
+                    onLoad={() => setProfileImageError(false)}
                   />
                 ) : (
-                  <User size={20} className="text-muted-foreground" />
+                  <div className="w-full h-full bg-gradient-to-br from-primary/10 to-primary/20 flex items-center justify-center">
+                    <User size={20} className="text-primary" />
+                  </div>
                 )}
               </Button>
             ) : (
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                className="flex items-center space-x-1 px-3"
+                className="flex items-center space-x-1 px-3 border"
                 onClick={handleAuthClick}
                 data-testid="login-button"
               >
@@ -367,8 +515,8 @@ console.log(user);
 
       {/* Click outside to close notifications */}
       {showNotifications && (
-        <div 
-          className="fixed inset-0 z-40" 
+        <div
+          className="fixed inset-0 z-[55]"
           onClick={() => setShowNotifications(false)}
         />
       )}
@@ -377,7 +525,7 @@ console.log(user);
       <TimeBanner />
 
       {/* Search and Filters */}
-      <div className="p-4 space-y-3">
+      <div className="p-4 space-y-3 relative">
         <div className="relative">
           <Search
             className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground"
@@ -391,46 +539,161 @@ console.log(user);
             onChange={handleSearch}
             data-testid="search-input"
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-2 top-1/2 transform -translate-y-1/2"
-            onClick={toggleFilters}
-            data-testid="filters-button"
-          >
-            <SlidersHorizontal size={18} />
-          </Button>
+
+          {/* Filter Button with Dropdown */}
+          <div className="absolute right-2 top-1/2 transform -translate-y-1/2 z-50">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`relative rounded-full transition-all duration-200 ${
+                showFilters
+                  ? "bg-primary/20 text-primary shadow-md"
+                  : "hover:bg-gray-100"
+              }`}
+              onClick={toggleFilters}
+              data-testid="filters-button"
+            >
+              <Filter
+                size={18}
+                className={`transition-transform duration-200 ${
+                  showFilters ? "rotate-180" : ""
+                }`}
+              />
+              {selectedCategory && (
+                <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary rounded-full animate-pulse"></div>
+              )}
+            </Button>
+          </div>
         </div>
 
-        {/* Active Filters */}
-        {(searchQuery || selectedCategory) && (
-          <div className="flex space-x-2 overflow-x-auto pb-2">
-            {searchQuery && (
-              <Badge variant="secondary" className="whitespace-nowrap">
-                Search: {searchQuery}
-                <X
-                  size={14}
-                  className="ml-1 cursor-pointer"
-                  onClick={() => setSearchQuery("")}
-                />
-              </Badge>
-            )}
-            {selectedCategory && (
-              <Badge variant="secondary" className="whitespace-nowrap">
-                Category Filter
-                <X
-                  size={14}
-                  className="ml-1 cursor-pointer"
-                  onClick={() => setSelectedCategory("")}
-                />
-              </Badge>
-            )}
+        {/* Category Dropdown - Moved outside search container for proper positioning */}
+        {showFilters && (
+          <div className="absolute right-6 top-15 w-50 bg-white border border-gray-200 rounded-lg shadow-lg z-[9999]">
+            {/* Dropdown Arrow */}
+            <div className="absolute -top-2 right-4 w-4 h-4 bg-white border-l border-t border-gray-200 rotate-45"></div>
+
+            <div className="bg-white rounded-lg overflow-hidden">
+              {/* Header */}
+              <div className="p-3 bg-gray-50 border-b border-gray-100">
+                <div className="flex items-center justify-between">
+                 <div className="flex items-center space-x-2">
+                    <div className="w-7 h-7 bg-gradient-to-br from-primary/20 to-primary/10 rounded-lg flex items-center justify-center">
+                      <Filter className="w-3 h-3 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-xs text-gray-900">
+                        Filter Categories
+                      </h3>
+                      <p className="text-[0.60rem] text-gray-500">
+                        {availableCategories.length} categories available
+                      </p>
+                    </div>
+                  </div>
+                  {(selectedCategory || searchQuery) && (
+                    <button
+                      onClick={clearAllFilters}
+                      className="text-xs text-red-500 hover:text-red-600 px-2 py-1 rounded transition-colors"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Categories List */}
+              <div className="max-h-60 overflow-y-auto">
+                {/* All Categories Option */}
+                <div
+                  className={`px-3 py-2 cursor-pointer transition-colors ${
+                    !selectedCategory
+                      ? "bg-blue-50 border-l-3 border-blue-500"
+                      : "hover:bg-gray-50"
+                  }`}
+                  onClick={() => handleCategorySelect("")}
+                >
+                  <h4 className="text-xs font-medium text-gray-900">
+                    All Categories
+                  </h4>
+                  <p className="text-[0.60rem] text-gray-500 mt-0.5">
+                    Browse all products
+                  </p>
+                </div>
+
+                {/* Individual Categories */}
+                {availableCategories.map((category) => {
+                  const isSelected = selectedCategory === category.id;
+
+                  return (
+                    <div
+                      key={category.id}
+                      className={`px-3 py-2 cursor-pointer transition-colors ${
+                        isSelected
+                          ? "bg-blue-50 border-l-3 border-blue-500"
+                          : "hover:bg-gray-50"
+                      }`}
+                      onClick={() => handleCategorySelect(category.id)}
+                    >
+                      <h4 className="text-xs font-medium text-gray-900">
+                        {category.name}
+                      </h4>
+                      <span className="text-[0.60rem] text-green-600">Available</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Category Tabs */}
-      {/* <CategoryTabs selectedCategory={selectedCategory} onCategorySelect={handleCategorySelect} /> */}
+      {/* Active Filters Display */}
+      {(searchQuery || selectedCategory) && (
+        <div className="flex items-center space-x-2 overflow-x-auto pb-2 px-4">
+          <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+            Active filters:
+          </span>
+          {searchQuery && (
+            <Badge className="whitespace-nowrap bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors duration-200">
+              <Search size={12} className="mr-1" />
+              {searchQuery}
+              <X
+                size={12}
+                className="ml-1 cursor-pointer hover:bg-blue-200 rounded transition-colors duration-200"
+                onClick={() => setSearchQuery("")}
+              />
+            </Badge>
+          )}
+          {selectedCategory && (
+            <Badge className="whitespace-nowrap bg-green-100 text-green-700 hover:bg-green-200 transition-colors duration-200">
+              <Filter size={12} className="mr-1" />
+              {selectedCategoryName}
+              <X
+                size={12}
+                className="ml-1 cursor-pointer hover:bg-green-200 rounded transition-colors duration-200"
+                onClick={() => setSelectedCategory("")}
+              />
+            </Badge>
+          )}
+          {(searchQuery || selectedCategory) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearAllFilters}
+              className="text-xs text-muted-foreground hover:text-destructive px-2 transition-colors duration-200"
+            >
+              Clear All
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Click outside to close filters */}
+      {showFilters && (
+        <div
+          className="fixed inset-0 z-[9998]"
+          onClick={() => setShowFilters(false)}
+        />
+      )}
 
       {/* Featured Banner */}
       <div className="px-4 mb-6">
@@ -457,15 +720,110 @@ console.log(user);
       </div>
 
       {/* AI Recommendations */}
-      {/* <AIRecommendations userId={userId} /> */}
+      {/* <AIRecommendations userId={getUserId()} /> */}
 
       {/* Products Grid */}
       <div className="px-4 mb-20">
-        {/* Product content will go here */}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-lg">
+            {searchQuery
+              ? "Search Results"
+              : selectedCategory
+              ? `${selectedCategoryName} Products`
+              : "Available Now"}
+            {products.length > 0 && (
+              <span className="text-sm text-muted-foreground font-normal ml-2">
+                ({products.length} items)
+              </span>
+            )}
+          </h2>
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setViewMode("grid")}
+              className={
+                viewMode === "grid"
+                  ? "text-primary bg-primary/10"
+                  : "text-muted-foreground"
+              }
+              data-testid="grid-view-button"
+            >
+              <Grid3X3 size={20} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setViewMode("list")}
+              className={
+                viewMode === "list"
+                  ? "text-primary bg-primary/10"
+                  : "text-muted-foreground"
+              }
+              data-testid="list-view-button"
+            >
+              <List size={20} />
+            </Button>
+          </div>
+        </div>
+
+        {productsLoading ? (
+          <div className="grid grid-cols-2 gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="bg-card rounded-xl p-3 border border-border animate-pulse"
+              >
+                <div className="w-full h-32 bg-gray-200 rounded-lg mb-2"></div>
+                <div className="h-4 bg-gray-200 rounded mb-1"></div>
+                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                <div className="flex justify-between items-center">
+                  <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+                  <div className="w-8 h-8 bg-gray-200 rounded-full"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : productsError || products.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+              <ShoppingBag className="text-muted-foreground" size={32} />
+            </div>
+            <h3 className="font-semibold mb-2">No products available</h3>
+            <p className="text-muted-foreground text-sm">
+              {searchQuery
+                ? "Try a different search term or adjust your filters"
+                : "Check back later for available items"}
+            </p>
+            {productsError && (
+              <Button
+                variant="outline"
+                onClick={() => refetchProducts()}
+                className="mt-4"
+              >
+                Try Again
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div
+            className={`grid ${
+              viewMode === "grid" ? "grid-cols-2" : "grid-cols-1"
+            } gap-4`}
+          >
+            {products.map((product) => (
+              <ProductCard
+                key={product.id}
+                product={product}
+                userId={getUserId()}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Floating Cart */}
-      {/* <FloatingCart userId={userId} onOpenCart={() => setIsCartOpen(true)} /> */}
+      {/* <FloatingCart userId={getUserId()} onOpenCart={() => setIsCartOpen(true)} /> */}
 
       {/* Bottom Navigation */}
       <nav
@@ -512,7 +870,24 @@ console.log(user);
       </nav>
 
       {/* Cart Modal */}
-      {/* <CartModal isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} onCheckout={handleCheckout} userId={userId} /> */}
+      {/* <CartModal isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} onCheckout={handleCheckout} userId={getUserId()} /> */}
+
+      {/* Custom Scrollbar Styles */}
+      <style jsx>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(0, 0, 0, 0.2);
+          border-radius: 2px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(0, 0, 0, 0.3);
+        }
+      `}</style>
     </div>
   );
 }

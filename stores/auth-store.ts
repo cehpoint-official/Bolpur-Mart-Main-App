@@ -77,11 +77,13 @@ export const useAuthStore = create<AuthStore>()(
           set({ isSigningIn: true, signinErrors: {}, generalError: null });
 
           try {
-            const userCredential = await FirebaseAuthService.signInWithEmailPassword(
-              email,
-              password
-            );
-            const userWithData = await FirebaseAuthService.getCurrentUserWithData();
+            const userCredential =
+              await FirebaseAuthService.signInWithEmailPassword(
+                email,
+                password
+              );
+            const userWithData =
+              await FirebaseAuthService.getCurrentUserWithData();
 
             // Store token with appropriate expiry
             const token = await userCredential.user.getIdToken();
@@ -118,13 +120,15 @@ export const useAuthStore = create<AuthStore>()(
           set({ isSigningUp: true, signupErrors: {}, generalError: null });
 
           try {
-            const userCredential = await FirebaseAuthService.signUpWithEmailPassword(
-              formData.email,
-              formData.password,
-              formData.name
-            );
+            const userCredential =
+              await FirebaseAuthService.signUpWithEmailPassword(
+                formData.email,
+                formData.password,
+                formData.name
+              );
 
-            const userWithData = await FirebaseAuthService.getCurrentUserWithData();
+            const userWithData =
+              await FirebaseAuthService.getCurrentUserWithData();
 
             set({
               user: userWithData,
@@ -135,7 +139,8 @@ export const useAuthStore = create<AuthStore>()(
 
             toast({
               title: "Account created!",
-              description: "Welcome to Bolpur Mart. Please check your email to verify your account.",
+              description:
+                "Welcome to Bolpur Mart. Please check your email to verify your account.",
             });
           } catch (error: any) {
             set({
@@ -158,7 +163,8 @@ export const useAuthStore = create<AuthStore>()(
 
           try {
             const userCredential = await FirebaseAuthService.signInWithGoogle();
-            const userWithData = await FirebaseAuthService.getCurrentUserWithData();
+            const userWithData =
+              await FirebaseAuthService.getCurrentUserWithData();
 
             set({
               user: userWithData,
@@ -187,7 +193,7 @@ export const useAuthStore = create<AuthStore>()(
           }
         },
 
-        signout: async () => {
+        signOut: async () => {
           set({ isSigningOut: true });
 
           try {
@@ -229,7 +235,20 @@ export const useAuthStore = create<AuthStore>()(
             generalError: null,
           });
         },
-
+        updateUserData: (userData: any) => {
+          const currentUser = get().user;
+          if (currentUser) {
+            set({
+              user: {
+                ...currentUser,
+                customData: {
+                  ...currentUser.customData,
+                  ...userData,
+                },
+              },
+            });
+          }
+        },
         updateSigninForm: (field: keyof SigninFormData, value: any) => {
           set((state) => ({
             signinForm: { ...state.signinForm, [field]: value },
@@ -364,7 +383,7 @@ export const useAuthStore = create<AuthStore>()(
 export const initializeAuth = () => {
   // Set loading state initially
   useAuthStore.setState({ isLoading: true });
-  
+
   const unsubscribe = FirebaseAuthService.onAuthStateChanged((user) => {
     useAuthStore.getState().setUser(user);
   });

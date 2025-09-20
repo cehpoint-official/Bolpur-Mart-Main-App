@@ -256,35 +256,35 @@ export class FirebaseAuthService {
   }
 
   // Update user profile
-  static async updateUserProfile(updates: {
-    name?: string
-    phone?: string
-    avatar?: string
-    preferences?: any
-  }): Promise<void> {
-    const user = auth.currentUser
-    if (!user) throw new Error('No authenticated user')
+static async updateUserProfile(updates: Record<string, any>): Promise<void> {
+  const user = auth.currentUser
+  if (!user) throw new Error('No authenticated user')
 
-    try {
-      const userDocRef = doc(db, 'users', user.uid)
-      
-      // Update Firebase Auth profile if name changed
-      if (updates.name && updates.name !== user.displayName) {
-        await updateProfile(user, { displayName: updates.name })
-      }
-
-      // Update Firestore document
-      await updateDoc(userDocRef, {
-        ...updates,
-        updatedAt: new Date().toISOString(),
-        profileCompleted: true
-      })
-
-    } catch (error: any) {
-      console.error('Update profile error:', error)
-      throw new Error('Failed to update profile. Please try again.')
+  try {
+    const userDocRef = doc(db, 'users', user.uid)
+    
+    // Update Firebase Auth profile if displayName is being changed
+    if (updates.name && updates.name !== user.displayName) {
+      await updateProfile(user, { displayName: updates.name })
     }
+
+    // Create update data with all provided fields plus system fields
+    const updateData = {
+      ...updates,  // Accept any and all fields from updates
+      updatedAt: new Date().toISOString(),
+      profileCompleted: true
+    }
+
+    // Update Firestore document with all provided data
+    await updateDoc(userDocRef, updateData)
+
+    console.log('Profile updated successfully with:', updateData)
+
+  } catch (error: any) {
+    console.error('Update profile error:', error)
+    throw new Error('Failed to update profile. Please try again.')
   }
+}
 
   // Get auth error messages
   private static getAuthErrorMessage(errorCode: string): string {

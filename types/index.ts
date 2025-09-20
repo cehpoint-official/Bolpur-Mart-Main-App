@@ -41,34 +41,34 @@ export interface UserPreferences {
   currency: string;
 }
 
-// Category interface
-export interface Category extends FirebaseDocument {
-  name: string;
-  slug: string;
-  description?: string;
-  image?: string;
-  timeSlots: TimeSlotType[];
-  isActive: boolean;
-  sortOrder: number;
-}
+// // Category interface
+// export interface Category extends FirebaseDocument {
+//   name: string;
+//   slug: string;
+//   description?: string;
+//   image?: string;
+//   timeSlots: TimeSlotType[];
+//   isActive: boolean;
+//   sortOrder: number;
+// }
 
-// Product interface
-export interface Product {
-  id: string
-  name: string
-  categories: string[]
-  price: number
-  stock: number
-  vendorIds: string[]
-  vendorName: string
-  timeSlotIds: string[]
-  description: string
-  tags: string[]
-  available: boolean
-  createdAt?: Date
-  updatedAt?: Date
-  imageUrl?: string
-}
+// // Product interface
+// export interface Product {
+//   id: string
+//   name: string
+//   categories: string[]
+//   price: number
+//   stock: number
+//   vendorIds: string[]
+//   vendorName: string
+//   timeSlotIds: string[]
+//   description: string
+//   tags: string[]
+//   available: boolean
+//   createdAt?: Date
+//   updatedAt?: Date
+//   imageUrl?: string
+// }
 
 
 export interface ProductVariant {
@@ -148,6 +148,95 @@ export type OrderStatus =
   | 'cancelled';
 
 export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded';
+// Update your existing types with these additions
+
+
+export interface Category {
+  id: string
+  name: string
+  description: string
+  isActive: boolean
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface CategoryReference {
+  id: string
+  name: string
+}
+
+export interface TimeSlot {
+  id: string
+  name: string
+  label: string
+  icon: string
+  startTime: string // Format: "HH:MM"
+  endTime: string // Format: "HH:MM"
+  isActive: boolean
+  order: number // For sorting
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface TimeRuleSlot {
+  timeSlotName: string
+  startTime: string
+  endTime: string
+  allowedCategories: CategoryReference[]
+  isActive: boolean
+}
+
+export interface TimeRulesConfig {
+  [timeSlotId: string]: TimeRuleSlot
+}
+
+export interface Vendor {
+  id: string
+  name: string
+  location: string
+  commission: number
+  category: string[]
+  contactPerson: string
+  phone: string
+  email: string
+  address: string
+  isActive: boolean
+  createdAt?: Date
+  updatedAt?: Date
+  totalProducts: number
+  totalOrders: number
+  rating: number
+}
+
+export interface Product {
+  id: string
+  name: string
+  categories: Category[]
+  price: number // Original price
+  discountedPrice?: number // Optional - only exists when hasDiscount is true
+  discountPercentage?: number // Optional - only exists when hasDiscount is true
+  hasDiscount: boolean // Whether product has discount or not
+  stock: number
+  vendors: Vendor[]
+  description: string
+  tags: string[]
+  available: boolean
+  createdAt?: Date
+  updatedAt?: Date
+  imageUrl?: string
+  // Rating fields
+  averageRating: number
+  totalRatings: number
+  ratingBreakdown: {
+    1: number
+    2: number
+    3: number
+    4: number
+    5: number
+  }
+}
+
+
 
 // Input types (for creating documents without id and timestamps)
 export type CreateUser = Omit<User, keyof FirebaseDocument>;

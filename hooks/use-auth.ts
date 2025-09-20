@@ -26,7 +26,8 @@ export const useAuth = () => {
     signin: store.signin,
     signup: store.signup,
     googleAuth: store.googleAuth,
-    signout: store.signout,
+    signOut: store.signOut, // ADD this line
+    updateUserData: store.updateUserData, // ADD this line
     setCurrentTab: store.setCurrentTab,
     updateSigninForm: store.updateSigninForm,
     updateSignupForm: store.updateSignupForm,
