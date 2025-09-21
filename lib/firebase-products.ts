@@ -160,11 +160,9 @@ export class FirebaseProductService {
     // Get categories available in current time slot
     static async getAvailableCategories(): Promise<CategoryReference[]> {
         try {
-            console.log("Fetching available categories...")
     
             const timeRules = await this.getTimeRules()
             if (!timeRules) {
-                console.log(" No time rules found")
                 return []
             }
 
@@ -175,7 +173,6 @@ export class FirebaseProductService {
             }
 
             const allowedCategories = this.getAllowedCategories(timeRules, currentSlotId)
-            console.log("📂 Available categories for current time slot:", allowedCategories)
     
             return allowedCategories
         } catch (error) {

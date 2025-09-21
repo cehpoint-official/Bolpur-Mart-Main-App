@@ -85,7 +85,7 @@ export function ProductCard({ product, userId }: ProductCardProps) {
     >
       <div className="relative">
         {/* Product Image */}
-        <div className="relative w-full h-32 bg-muted">
+        <div className="relative w-full h-32 bg-muted border-b">
           <Image
             src={optimizedImageUrl}
             alt={product.name}

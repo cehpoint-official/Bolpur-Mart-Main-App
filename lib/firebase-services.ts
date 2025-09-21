@@ -1,4 +1,3 @@
-// lib/firebase-services.ts
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -19,7 +18,7 @@ import {
   DocumentData
 } from 'firebase/firestore'
 import { auth, db } from './firebase'
-import type { CreateUser, User } from '@/types'
+import type { Address, CreateUser, User } from '@/types'
 import type { AuthUser } from '@/types/auth'
 import { TokenManager } from './auth/token-manager'
 
@@ -58,7 +57,7 @@ export class FirebaseAuthService {
       // Store token
       TokenManager.setToken(idToken)
       
-      // Update last login time
+      // Update last login time ONLY
       const userDocRef = doc(db, 'users', userCredential.user.uid)
       await updateDoc(userDocRef, {
         lastLoginAt: new Date().toISOString(),
@@ -127,7 +126,7 @@ export class FirebaseAuthService {
     }
   }
 
-  // Google Sign In
+  // Google Sign In - Preserves User Customizations
   static async signInWithGoogle(): Promise<UserCredential> {
     try {
       this.googleProvider.setCustomParameters({
@@ -144,7 +143,7 @@ export class FirebaseAuthService {
       const currentTime = new Date().toISOString()
 
       if (!userDoc.exists()) {
-        // Create new user document for Google user
+        // Create new user document for Google user (first time only)
         const userData: CreateUser = {
           email: user.email!,
           name: user.displayName || '',
@@ -168,18 +167,29 @@ export class FirebaseAuthService {
           profileCompleted: false,
           authProvider: 'google'
         })
+
+        console.log('✅ Created new Google user document')
       } else {
-        // Update existing user document
-        await updateDoc(userDocRef, {
+        // FIXED: For existing users, preserve ALL customizations
+        const existingData = userDoc.data()
+        
+        // Only update essential login-related fields
+        const updateData: any = {
           updatedAt: currentTime,
           lastLoginAt: currentTime,
-          // Update avatar if Google photo has changed
-          avatar: user.photoURL || userDoc.data()?.avatar || '',
-          // Update name if Google display name has changed
-          name: user.displayName || userDoc.data()?.name || '',
-          // Update email verification status
           emailVerified: user.emailVerified
-        })
+        }
+
+        // Only update email if it has changed (very rare)
+        if (user.email && user.email !== existingData?.email) {
+          updateData.email = user.email
+        }
+
+        // PRESERVE: avatar, name, phone, preferences, addresses
+        // These should NEVER be overwritten on login
+
+        await updateDoc(userDocRef, updateData)
+        console.log('✅ Updated existing user login data (preserved customizations)')
       }
 
       // Get ID token
@@ -256,36 +266,242 @@ export class FirebaseAuthService {
   }
 
   // Update user profile
-static async updateUserProfile(updates: Record<string, any>): Promise<void> {
-  const user = auth.currentUser
-  if (!user) throw new Error('No authenticated user')
+  static async updateUserProfile(updates: Record<string, any>): Promise<void> {
+    const user = auth.currentUser
+    if (!user) throw new Error('No authenticated user')
 
-  try {
-    const userDocRef = doc(db, 'users', user.uid)
-    
-    // Update Firebase Auth profile if displayName is being changed
-    if (updates.name && updates.name !== user.displayName) {
-      await updateProfile(user, { displayName: updates.name })
+    try {
+      const userDocRef = doc(db, 'users', user.uid)
+      
+      // Update Firebase Auth profile if displayName is being changed
+      if (updates.name && updates.name !== user.displayName) {
+        await updateProfile(user, { displayName: updates.name })
+      }
+
+      // Create update data with all provided fields plus system fields
+      const updateData = {
+        ...updates,  // Accept any and all fields from updates
+        updatedAt: new Date().toISOString(),
+        profileCompleted: true
+      }
+
+      // Update Firestore document with all provided data
+      await updateDoc(userDocRef, updateData)
+
+
+    } catch (error: any) {
+      console.error(' Update profile error:', error)
+      throw new Error('Failed to update profile. Please try again.')
     }
-
-    // Create update data with all provided fields plus system fields
-    const updateData = {
-      ...updates,  // Accept any and all fields from updates
-      updatedAt: new Date().toISOString(),
-      profileCompleted: true
-    }
-
-    // Update Firestore document with all provided data
-    await updateDoc(userDocRef, updateData)
-
-    console.log('Profile updated successfully with:', updateData)
-
-  } catch (error: any) {
-    console.error('Update profile error:', error)
-    throw new Error('Failed to update profile. Please try again.')
   }
-}
 
+    // ADDRESS MANAGEMENT METHODS
+
+  // Add new address to user's addresses array
+  static async addAddress(addressData: Omit<Address, 'id'>): Promise<void> {
+    const user = auth.currentUser
+    if (!user) throw new Error('No authenticated user')
+
+    try {
+      const userDocRef = doc(db, 'users', user.uid)
+      const userDoc = await getDoc(userDocRef)
+      
+      if (!userDoc.exists()) {
+        throw new Error('User document not found')
+      }
+
+      const userData = userDoc.data() as User
+      const currentAddresses = userData.addresses || []
+      
+      // Generate new address ID
+      const newAddressId = Date.now().toString()
+      
+      // If this is the first address or explicitly set as default, make it default
+      const isFirstAddress = currentAddresses.length === 0
+      const shouldBeDefault = isFirstAddress || addressData.isDefault
+
+      // If setting as default, clear other defaults
+      let updatedAddresses = currentAddresses
+      if (shouldBeDefault) {
+        updatedAddresses = currentAddresses.map(addr => ({
+          ...addr,
+          isDefault: false
+        }))
+      }
+
+      // Add new address
+      const newAddress: Address = {
+        ...addressData,
+        id: newAddressId,
+        isDefault: shouldBeDefault
+      }
+
+      updatedAddresses.push(newAddress)
+
+      // Update user document
+      await updateDoc(userDocRef, {
+        addresses: updatedAddresses,
+        updatedAt: new Date().toISOString()
+      })
+
+    } catch (error: any) {
+      console.error(' Add address error:', error)
+      throw new Error('Failed to add address. Please try again.')
+    }
+  }
+
+  // Update existing address
+  static async updateAddress(addressId: string, updates: Partial<Address>): Promise<void> {
+    const user = auth.currentUser
+    if (!user) throw new Error('No authenticated user')
+
+    try {
+      const userDocRef = doc(db, 'users', user.uid)
+      const userDoc = await getDoc(userDocRef)
+      
+      if (!userDoc.exists()) {
+        throw new Error('User document not found')
+      }
+
+      const userData = userDoc.data() as User
+      const currentAddresses = userData.addresses || []
+      
+      // Find address index
+      const addressIndex = currentAddresses.findIndex(addr => addr.id === addressId)
+      if (addressIndex === -1) {
+        throw new Error('Address not found')
+      }
+
+      let updatedAddresses = [...currentAddresses]
+      
+      // If setting as default, clear other defaults first
+      if (updates.isDefault === true) {
+        updatedAddresses = updatedAddresses.map(addr => ({
+          ...addr,
+          isDefault: false
+        }))
+      }
+
+      // Update the specific address
+      updatedAddresses[addressIndex] = {
+        ...updatedAddresses[addressIndex],
+        ...updates
+      }
+
+      // Update user document
+      await updateDoc(userDocRef, {
+        addresses: updatedAddresses,
+        updatedAt: new Date().toISOString()
+      })
+
+    } catch (error: any) {
+      console.error(' Update address error:', error)
+      throw new Error('Failed to update address. Please try again.')
+    }
+  }
+
+  // Delete address
+  static async deleteAddress(addressId: string): Promise<void> {
+    const user = auth.currentUser
+    if (!user) throw new Error('No authenticated user')
+
+    try {
+      const userDocRef = doc(db, 'users', user.uid)
+      const userDoc = await getDoc(userDocRef)
+      
+      if (!userDoc.exists()) {
+        throw new Error('User document not found')
+      }
+
+      const userData = userDoc.data() as User
+      const currentAddresses = userData.addresses || []
+      
+      // Find the address to delete
+      const addressToDelete = currentAddresses.find(addr => addr.id === addressId)
+      if (!addressToDelete) {
+        throw new Error('Address not found')
+      }
+
+      // Remove the address
+      let updatedAddresses = currentAddresses.filter(addr => addr.id !== addressId)
+      
+      // If deleted address was default and there are remaining addresses, set first one as default
+      if (addressToDelete.isDefault && updatedAddresses.length > 0) {
+        updatedAddresses[0].isDefault = true
+      }
+
+      // Update user document
+      await updateDoc(userDocRef, {
+        addresses: updatedAddresses,
+        updatedAt: new Date().toISOString()
+      })
+
+    } catch (error: any) {
+      console.error(' Delete address error:', error)
+      throw new Error('Failed to delete address. Please try again.')
+    }
+  }
+
+  // Set default address
+  static async setDefaultAddress(addressId: string): Promise<void> {
+    const user = auth.currentUser
+    if (!user) throw new Error('No authenticated user')
+
+    try {
+      const userDocRef = doc(db, 'users', user.uid)
+      const userDoc = await getDoc(userDocRef)
+      
+      if (!userDoc.exists()) {
+        throw new Error('User document not found')
+      }
+
+      const userData = userDoc.data() as User
+      const currentAddresses = userData.addresses || []
+      
+      // Find the address to set as default
+      const addressIndex = currentAddresses.findIndex(addr => addr.id === addressId)
+      if (addressIndex === -1) {
+        throw new Error('Address not found')
+      }
+
+      // Update all addresses: clear defaults and set the selected one
+      const updatedAddresses = currentAddresses.map(addr => ({
+        ...addr,
+        isDefault: addr.id === addressId
+      }))
+
+      // Update user document
+      await updateDoc(userDocRef, {
+        addresses: updatedAddresses,
+        updatedAt: new Date().toISOString()
+      })
+
+    } catch (error: any) {
+      console.error(' Set default address error:', error)
+      throw new Error('Failed to set default address. Please try again.')
+    }
+  }
+
+  // Get user addresses (helper method)
+  static async getUserAddresses(): Promise<Address[]> {
+    const user = auth.currentUser
+    if (!user) return []
+
+    try {
+      const userDocRef = doc(db, 'users', user.uid)
+      const userDoc = await getDoc(userDocRef)
+      
+      if (!userDoc.exists()) {
+        return []
+      }
+
+      const userData = userDoc.data() as User
+      return userData.addresses || []
+    } catch (error: any) {
+      console.error(' Get addresses error:', error)
+      return []
+    }
+  }
   // Get auth error messages
   private static getAuthErrorMessage(errorCode: string): string {
     switch (errorCode) {

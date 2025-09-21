@@ -1,5 +1,3 @@
-// types/index.ts
-
 // Base Firebase document interface
 export interface FirebaseDocument {
   id: string;
@@ -27,12 +25,37 @@ export interface User extends FirebaseDocument {
 export interface Address {
   id: string;
   type: 'home' | 'work' | 'other';
+  receiverName: string;
+  receiverPhone: string;
   street: string;
   city: string;
   state: string;
-  zipCode: string;
+  pinCode: string;
+  fullAddress: string;
   isDefault: boolean;
 }
+
+export interface PaymentMethod {
+  id: string;
+  type: 'card' | 'upi' | 'netbanking' | 'wallet';
+  name: string;
+  details: string;
+  isDefault: boolean;
+  lastUsed?: string;
+  // Card specific fields
+  cardNumber?: string;
+  expiryMonth?: string;
+  expiryYear?: string;
+  cardHolderName?: string;
+  cardType?: 'visa' | 'mastercard' | 'rupay';
+  // UPI specific fields
+  upiId?: string;
+  // Wallet specific fields
+  walletProvider?: string;
+  walletBalance?: number;
+}
+
+
 
 export interface UserPreferences {
   notifications: boolean;

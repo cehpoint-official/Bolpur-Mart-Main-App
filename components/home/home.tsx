@@ -123,10 +123,7 @@ useEffect(() => {
       return; // Skip API call if data already exists
     }
 
-    // console.log("🌍 Starting location fetch...");
-
     if (!navigator.geolocation) {
-      // console.log("❌ Geolocation not supported");
       setLocation((prev) => ({
         ...prev,
         loading: false,
@@ -136,7 +133,6 @@ useEffect(() => {
     }
 
     try {
-      // console.log("📍 Getting coordinates...");
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           timeout: 15000,
@@ -146,23 +142,19 @@ useEffect(() => {
       });
 
       const { latitude, longitude } = position.coords;
-      // console.log(`📍 Got coordinates: ${latitude}, ${longitude}`);
 
       const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-      // console.log("🔑 API Key exists:", !!apiKey);
 
       const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${apiKey}&result_type=street_address|sublocality_level_1|sublocality_level_2|locality|administrative_area_level_3`;
-      // console.log("🌐 Fetching geocode data...");
 
       const response = await fetch(geocodeUrl);
-      // console.log("📡 Geocode response status:", response.status);
 
       if (!response.ok) {
         throw new Error(`Geocoding failed with status: ${response.status}`);
       }
 
       const data = await response.json();
-      // console.log("🗺️ Geocode response:", data);
+      // console.log(" Geocode response:", data);
 
       if (data.results && data.results.length > 0) {
         let city = "Bolpur";
@@ -171,7 +163,7 @@ useEffect(() => {
         // Look through all results to find the most specific location
         for (const result of data.results.slice(0, 3)) {
           const addressComponents = result.address_components;
-          // console.log("🔍 Checking result:", result.formatted_address);
+          // console.log(" Checking result:", result.formatted_address);
 
           const cityTypes = [
             "sublocality_level_1",
@@ -188,7 +180,7 @@ useEffect(() => {
           for (const component of addressComponents) {
             if (component.types.includes("administrative_area_level_1")) {
               state = component.long_name;
-              // console.log("🏛️ Found state:", state);
+              // console.log(" Found state:", state);
               break;
             }
           }
@@ -205,7 +197,7 @@ useEffect(() => {
                   potentialCity.length > 2
                 ) {
                   city = potentialCity;
-                  // console.log(`🏙️ Found city from ${cityType}:`, city);
+                  // console.log(` Found city from ${cityType}:`, city);
                   break;
                 }
               }
@@ -216,7 +208,7 @@ useEffect(() => {
           if (city !== "Bolpur") break;
         }
 
-        // console.log(`✅ Final location: ${city}, ${state}`);
+        // console.log(` Final location: ${city}, ${state}`);
 
         // Save location to sessionStorage
         sessionStorage.setItem(
@@ -234,7 +226,7 @@ useEffect(() => {
         throw new Error("No location data found");
       }
     } catch (error: any) {
-      // console.error("❌ Location fetch error:", error);
+      // console.error(" Location fetch error:", error);
       setLocation((prev) => ({
         ...prev,
         loading: false,
@@ -343,9 +335,7 @@ useEffect(() => {
     if (!user) return null;
     
     // Try custom avatar first, then photoURL, then fallback
-    return user.customData?.avatar || 
-           user.photoURL || 
-           "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS8oghbsuzggpkknQSSU-Ch_xep_9v3m6EeBQ&s";
+    return user.customData?.avatar 
   };
 
   console.log("🔍 Debug Info:", {
