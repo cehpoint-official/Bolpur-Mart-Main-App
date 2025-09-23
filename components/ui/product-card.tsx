@@ -1,69 +1,145 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Star, Heart, Plus, Minus, ShoppingBag, Clock, MapPin } from "lucide-react"
-import { getOptimizedImageUrl, getPlaceholderUrl } from "@/lib/cloudinary-config"
-import { useCart } from "@/hooks/use-cart"
-import type { Product } from "@/types"
-import Image from "next/image"
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Minus, Plus, ShoppingCart, Star, Clock, Heart, ShoppingBag, MapPin } from "lucide-react";
+import { useCartStore } from "@/stores/useCartStore";
+import { useWishlistStore } from "@/stores/useWishlistStore";
+import { useAuth } from "@/hooks/use-auth";
+import { useRouter } from "next/navigation";
+import { toast } from "@/hooks/use-toast";
+import type { Product } from "@/types";
+import Image from "next/image";
+import {
+  getOptimizedImageUrl,
+  getPlaceholderUrl,
+} from "@/lib/cloudinary-config";
 
 interface ProductCardProps {
-  product: Product
-  userId: string
+  product: Product;
+  userId: string | null;
+  viewMode?: "grid" | "list";
 }
 
 export function ProductCard({ product, userId }: ProductCardProps) {
-  const [imageLoaded, setImageLoaded] = useState(false)
-  const [isWishlisted, setIsWishlisted] = useState(false)
-  const [imageError, setImageError] = useState(false)
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const [isAddingToCart, setIsAddingToCart] = useState(false);
+  const [isWishlistLoading, setIsWishlistLoading] = useState(false); // Individual loading state
+  
+  const router = useRouter();
+  const { isAuthenticated } = useAuth();
 
-  const { addToCart, updateQuantity, getCartItemQuantity, cartItems, isAddingToCart } = useCart(userId)
+  // Cart store
+  const {
+    items,
+    addItem,
+    updateQuantity,
+    loading: cartLoading,
+  } = useCartStore();
 
-  const quantity = getCartItemQuantity(product.id)
-  const cartItem = cartItems.find((item) => item.productId === product.id)
+  // Wishlist store
+  const {
+    addToWishlist,
+    removeFromWishlist,
+    isInWishlist,
+    init: initWishlist,
+    initialized: wishlistInitialized
+  } = useWishlistStore();
 
-  // Price calculations using correct field names
-  const originalPrice = product.price
-  const discountedPrice = product.discountedPrice || null
-  const hasDiscount = product.hasDiscount
-  const discountPercentage = product.discountPercentage || 0
+  // Initialize wishlist store
+  useEffect(() => {
+    if (!wishlistInitialized) {
+      initWishlist(userId);
+    }
+  }, [userId, initWishlist, wishlistInitialized]);
 
-  // Rating calculations
-  const averageRating = product.averageRating || 0
-  const totalRatings = product.totalRatings || 0
-  const roundedRating = Math.round(averageRating * 10) / 10 // Round to 1 decimal place
+  const isWishlisted = isInWishlist(product.id);
 
-  const handleAddToCart = () => {
-    addToCart(product.id, 1)
-  }
+  const cartItem = items.find(
+    (item) => item.productId === product.id && (!item.variant || item.variant === "")
+  );
+  const quantity = cartItem ? cartItem.quantity : 0;
 
-  const handleIncreaseQuantity = () => {
+  // Price calculations
+  const originalPrice = product.price;
+  const discountedPrice = product.discountedPrice ?? null;
+  const hasDiscount = product.hasDiscount;
+  const discountPercentage = product.discountPercentage ?? 0;
+
+  // Ratings
+  const averageRating = product.averageRating ?? 0;
+  const totalRatings = product.totalRatings ?? 0;
+  const roundedRating = Math.round(averageRating * 10) / 10;
+
+  const handleAddToCart = async () => {
+    setIsAddingToCart(true);
+    try {
+      await addItem(product.id, 1, undefined);
+    } catch (error) {
+      console.error('Error adding to cart:', error);
+    } finally {
+      setIsAddingToCart(false);
+    }
+  };
+
+  const handleIncreaseQuantity = async () => {
     if (cartItem) {
-      updateQuantity(cartItem.id, quantity + 1)
+      await updateQuantity(cartItem.id, cartItem.quantity + 1);
     } else {
-      addToCart(product.id, 1)
+      await addItem(product.id, 1, undefined);
     }
-  }
+  };
 
-  const handleDecreaseQuantity = () => {
+  const handleDecreaseQuantity = async () => {
     if (cartItem && quantity > 0) {
-      updateQuantity(cartItem.id, quantity - 1)
+      await updateQuantity(cartItem.id, quantity - 1);
     }
-  }
+  };
 
-  const toggleWishlist = () => {
-    setIsWishlisted(!isWishlisted)
-    // TODO: Implement wishlist API call
-  }
+  const toggleWishlist = async () => {
+    // Check if user is authenticated
+    if (!isAuthenticated || !userId) {
+      toast({
+        title: "Login Required",
+        description: "Please login to add items to your wishlist.",
+        variant: "destructive"
+      });
+      
+      // Navigate to auth page
+      router.push("/auth");
+      return;
+    }
+
+    if (isWishlistLoading) return;
+
+    setIsWishlistLoading(true); // Set loading for this specific product
+
+    try {
+      if (isWishlisted) {
+        await removeFromWishlist(userId, product.id);
+      } else {
+        await addToWishlist(userId, product.id);
+      }
+    } catch (error) {
+      console.error('Error toggling wishlist:', error);
+      toast({
+        title: "Error",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsWishlistLoading(false); // Clear loading for this specific product
+    }
+  };
 
   // Image handling - use imageUrl from product
-  const productImage = product.imageUrl || ""
+  const productImage = product.imageUrl || "";
   const optimizedImageUrl = productImage && !imageError 
     ? getOptimizedImageUrl(productImage) 
-    : getPlaceholderUrl(400, 250)
+    : getPlaceholderUrl(400, 250);
 
   // Format price display
   const formatPrice = (price: number) => {
@@ -72,11 +148,8 @@ export function ProductCard({ product, userId }: ProductCardProps) {
       currency: 'INR',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(price).replace('₹', '')
-  }
-
-  // Get vendor info (first vendor for display)
-  const primaryVendor = product.vendors && product.vendors.length > 0 ? product.vendors[0] : null
+    }).format(price).replace('₹', '');
+  };
 
   return (
     <Card
@@ -117,7 +190,6 @@ export function ProductCard({ product, userId }: ProductCardProps) {
         {/* Stock Status Badge */}
         {product.stock < 5 && product.stock > 0 && (
           <Badge
-            variant="outline"
             className="absolute top-2 left-2 mt-8 bg-orange-100 text-orange-700 border-orange-300 text-xs"
           >
             Only {product.stock} left
@@ -139,13 +211,18 @@ export function ProductCard({ product, userId }: ProductCardProps) {
           size="icon"
           className="absolute top-2 right-2 w-8 h-8 bg-white/90 hover:bg-white rounded-full shadow-sm"
           onClick={toggleWishlist}
+          disabled={isWishlistLoading}
           data-testid={`wishlist-button-${product.id}`}
         >
-          <Heart 
-            className={`h-4 w-4 transition-colors ${
-              isWishlisted ? "text-red-500 fill-current" : "text-muted-foreground"
-            }`} 
-          />
+          {isWishlistLoading ? (
+            <div className="w-4 h-4 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Heart 
+              className={`h-4 w-4 transition-colors ${
+                isWishlisted ? "text-red-500 fill-current" : "text-muted-foreground"
+              }`} 
+            />
+          )}
         </Button>
       </div>
 
@@ -165,14 +242,6 @@ export function ProductCard({ product, userId }: ProductCardProps) {
         >
           {product.description}
         </p>
-
-        {/* Vendor Info */}
-        {/* {primaryVendor && (
-          <div className="flex items-center text-xs text-muted-foreground mb-2">
-            <MapPin className="w-3 h-3 mr-1" />
-            <span className="truncate">{primaryVendor.name}</span>
-          </div>
-        )} */}
 
         {/* Rating Display */}
         {totalRatings > 0 ? (
@@ -214,25 +283,6 @@ export function ProductCard({ product, userId }: ProductCardProps) {
           </div>
         )}
 
-        {/* Categories */}
-        {/* {product.categories && product.categories.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-2">
-            {product.categories.slice(0, 2).map((category) => (
-              <Badge 
-                key={category.id} 
-                className="text-xs px-1 py-0"
-              >
-                {category.name}
-              </Badge>
-            ))}
-            {product.categories.length > 2 && (
-              <Badge className="text-xs px-1 py-0">
-                +{product.categories.length - 2}
-              </Badge>
-            )}
-          </div>
-        )} */}
-
         {/* Price and Add to Cart Section */}
         <div className="flex items-center justify-between">
           {/* Price Display */}
@@ -267,7 +317,7 @@ export function ProductCard({ product, userId }: ProductCardProps) {
                   className="w-6 h-6 hover:bg-background"
                   onClick={handleDecreaseQuantity}
                   data-testid={`decrease-quantity-${product.id}`}
-                  disabled={product.stock === 0}
+                  disabled={product.stock === 0 || cartLoading}
                 >
                   <Minus className="h-3 w-3" />
                 </Button>
@@ -284,7 +334,7 @@ export function ProductCard({ product, userId }: ProductCardProps) {
                   size="icon"
                   className="w-6 h-6 hover:bg-background"
                   onClick={handleIncreaseQuantity}
-                  disabled={isAddingToCart || product.stock === 0 || quantity >= product.stock}
+                  disabled={isAddingToCart || product.stock === 0 || quantity >= product.stock || cartLoading}
                   data-testid={`increase-quantity-${product.id}`}
                 >
                   <Plus className="h-3 w-3" />
@@ -296,7 +346,7 @@ export function ProductCard({ product, userId }: ProductCardProps) {
                 size="sm"
                 className="h-8 px-3 text-xs font-medium"
                 onClick={handleAddToCart}
-                disabled={isAddingToCart || product.stock === 0}
+                disabled={isAddingToCart || product.stock === 0 || cartLoading}
                 data-testid={`add-to-cart-${product.id}`}
               >
                 {isAddingToCart ? (
@@ -329,5 +379,5 @@ export function ProductCard({ product, userId }: ProductCardProps) {
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

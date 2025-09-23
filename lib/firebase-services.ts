@@ -18,7 +18,7 @@ import {
   DocumentData
 } from 'firebase/firestore'
 import { auth, db } from './firebase'
-import type { Address, CreateUser, User } from '@/types'
+import type { Address, CreateUser, User,PaymentMethod } from '@/types'
 import type { AuthUser } from '@/types/auth'
 import { TokenManager } from './auth/token-manager'
 
@@ -97,6 +97,8 @@ export class FirebaseAuthService {
         phone: '',
         avatar: '',
         addresses: [],
+        payments: [],
+        cart: [],
         preferences: {
           notifications: true,
           theme: 'light',
@@ -150,6 +152,8 @@ export class FirebaseAuthService {
           phone: '',
           avatar: user.photoURL || '',
           addresses: [],
+          payments: [],
+          cart: [],
           preferences: {
             notifications: true,
             theme: 'light',
@@ -168,7 +172,7 @@ export class FirebaseAuthService {
           authProvider: 'google'
         })
 
-        console.log('✅ Created new Google user document')
+        console.log(' Created new Google user document')
       } else {
         // FIXED: For existing users, preserve ALL customizations
         const existingData = userDoc.data()
@@ -189,7 +193,7 @@ export class FirebaseAuthService {
         // These should NEVER be overwritten on login
 
         await updateDoc(userDocRef, updateData)
-        console.log('✅ Updated existing user login data (preserved customizations)')
+        console.log(' Updated existing user login data (preserved customizations)')
       }
 
       // Get ID token
@@ -501,6 +505,91 @@ export class FirebaseAuthService {
       console.error(' Get addresses error:', error)
       return []
     }
+
+  }
+
+   // Get Current User's Payment Methods Array
+  static async getPaymentMethods(): Promise<PaymentMethod[]> {
+    const user = auth.currentUser;
+    if (!user) return [];
+    const userDocRef = doc(db, 'users', user.uid);
+    const userDoc = await getDoc(userDocRef);
+
+    if (!userDoc.exists()) return [];
+    const userData = userDoc.data() as User;
+    return userData.payments || [];
+  }
+
+  // Add New Payment Method
+  static async addPaymentMethod(newPayment: Omit<PaymentMethod, 'id' | 'isDefault' | 'lastUsed'>): Promise<void> {
+    const user = auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    const userDocRef = doc(db, 'users', user.uid);
+    const userDoc = await getDoc(userDocRef);
+
+    if (!userDoc.exists()) throw new Error('User not found');
+    const userData = userDoc.data() as User;
+    const payments: PaymentMethod[] = userData.payments || [];
+    const id = `${Date.now()}`;
+    // Only allow one default; if new is default, clear others
+    let updatedPayments = payments.map(p => ({ ...p, isDefault: false }));
+    const isDefault = payments.length === 0 || newPayment.isDefault;
+    updatedPayments.push({ ...newPayment, id, isDefault, lastUsed: new Date().toISOString().split("T")[0] });
+    await updateDoc(userDocRef, { payments: updatedPayments, updatedAt: new Date().toISOString() });
+  }
+
+  // Update Existing Payment Method
+  static async updatePaymentMethod(paymentId: string, updates: Partial<PaymentMethod>): Promise<void> {
+    const user = auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    const userDocRef = doc(db, 'users', user.uid);
+    const userDoc = await getDoc(userDocRef);
+
+    if (!userDoc.exists()) throw new Error('User not found');
+    const userData = userDoc.data() as User;
+    let payments: PaymentMethod[] = userData.payments || [];
+
+    // If updates.makeDefault, set all others to isDefault=false
+    if (updates.isDefault) {
+      payments = payments.map(pm => ({ ...pm, isDefault: false }));
+    }
+    payments = payments.map(pm =>
+      pm.id === paymentId
+        ? { ...pm, ...updates, lastUsed: new Date().toISOString().split("T")[0] }
+        : pm
+    );
+    await updateDoc(userDocRef, { payments, updatedAt: new Date().toISOString() });
+  }
+
+  // Delete Payment Method
+  static async deletePaymentMethod(paymentId: string): Promise<void> {
+    const user = auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    const userDocRef = doc(db, 'users', user.uid);
+    const userDoc = await getDoc(userDocRef);
+
+    if (!userDoc.exists()) throw new Error('User not found');
+    const userData = userDoc.data() as User;
+    let payments: PaymentMethod[] = userData.payments || [];
+
+    const wasDefault = payments.find(pm => pm.id === paymentId)?.isDefault;
+    payments = payments.filter(pm => pm.id !== paymentId);
+
+    if (wasDefault && payments.length > 0) payments[0].isDefault = true;
+    await updateDoc(userDocRef, { payments, updatedAt: new Date().toISOString() });
+  }
+
+  // Set Default Payment Method
+  static async setDefaultPayment(paymentId: string): Promise<void> {
+    const user = auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    const userDocRef = doc(db, 'users', user.uid);
+    const userDoc = await getDoc(userDocRef);
+
+    if (!userDoc.exists()) throw new Error('User not found');
+    let payments: PaymentMethod[] = (userDoc.data() as User).payments || [];
+    payments = payments.map(pm => ({ ...pm, isDefault: pm.id === paymentId }));
+    await updateDoc(userDocRef, { payments, updatedAt: new Date().toISOString() });
   }
   // Get auth error messages
   private static getAuthErrorMessage(errorCode: string): string {

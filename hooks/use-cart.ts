@@ -103,22 +103,25 @@ export function useCart(userId: string) {
   })
 
   // Calculate cart totals
-  const cartSummary = {
-    itemCount: cartItems.reduce((sum, item) => sum + item.quantity, 0),
-    subtotal: cartItems.reduce((sum, item) => {
-      const price = Number.parseFloat(item.product?.discountedPrice || item.product?.price || "0")
-      return sum + price * item.quantity
-    }, 0),
-    get deliveryFee() {
-      return this.subtotal >= 299 ? 0 : 30 // Free delivery above ₹299
-    },
-    get taxes() {
-      return Math.round(this.subtotal * 0.05) // 5% tax
-    },
-    get total() {
-      return this.subtotal + this.deliveryFee + this.taxes
-    },
-  }
+const cartSummary = {
+  itemCount: cartItems.reduce((sum, item) => sum + item.quantity, 0),
+  subtotal: cartItems.reduce((sum, item) => {
+    const price = item.product
+      ? (item.product.discountedPrice !== undefined ? item.product.discountedPrice : item.product.price)
+      : 0;
+    return sum + (price ?? 0) * item.quantity;
+  }, 0),
+  get deliveryFee() {
+    return this.subtotal >= 299 ? 0 : 30; // Free delivery above ₹299
+  },
+  get taxes() {
+    return Math.round(this.subtotal * 0.05); // 5% tax
+  },
+  get total() {
+    return this.subtotal + this.deliveryFee + this.taxes;
+  },
+};
+
 
   // Helper functions
   const addToCart = (productId: string, quantity = 1, variant?: string) => {

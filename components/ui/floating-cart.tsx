@@ -1,8 +1,11 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { ShoppingCart } from "lucide-react"
-import { useCart } from "@/hooks/use-cart"
+import { useCartStore } from "@/stores/useCartStore"
+import { useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { FirebaseProductService } from "@/lib/firebase-products"
+import type { Product } from "@/types"
 
 interface FloatingCartProps {
   userId: string
@@ -10,14 +13,61 @@ interface FloatingCartProps {
 }
 
 export function FloatingCart({ userId, onOpenCart }: FloatingCartProps) {
-  const { cartSummary } = useCart(userId)
+  const { items } = useCartStore()
+
+  // Fetch product details for cart items
+  const { data: products = [] } = useQuery<Product[]>({
+    queryKey: ["floating-cart-products", items.map(item => item.productId)],
+    queryFn: async () => {
+      if (items.length === 0) return [];
+      
+      const productIds = [...new Set(items.map(item => item.productId))];
+      const productPromises = productIds.map(id => 
+        FirebaseProductService.getProductById(id)
+      );
+      
+      const products = await Promise.all(productPromises);
+      return products.filter(Boolean) as Product[];
+    },
+    enabled: items.length > 0,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  // Calculate cart summary with dynamic pricing
+  const cartSummary = useMemo(() => {
+    const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
+    
+    const subtotal = items.reduce((sum, item) => {
+      const product = products.find(p => p.id === item.productId);
+      if (!product) return sum;
+      
+      // Use discounted price if available, otherwise use regular price
+      const price = product.hasDiscount && product.discountedPrice 
+        ? product.discountedPrice 
+        : product.price;
+      
+      return sum + (price * item.quantity);
+    }, 0);
+    
+    const deliveryFee = subtotal > 500 ? 0 : 50;
+    const taxes = Math.round(subtotal * 0.05); // 5% tax
+    const total = subtotal + deliveryFee + taxes;
+
+    return {
+      itemCount,
+      subtotal,
+      deliveryFee,
+      taxes,
+      total
+    }
+  }, [items, products])
 
   if (cartSummary.itemCount === 0) {
     return null
   }
 
   return (
-    <div className="fixed bottom-20 left-4 right-4 z-40 max-w-md mx-auto" data-testid="floating-cart">
+    <div className="fixed bottom-20 left-4 right-4 z-40 max-w-sm mx-auto" data-testid="floating-cart">
       <Button
         onClick={onOpenCart}
         className="floating-btn w-full bg-primary text-primary-foreground py-4 rounded-2xl flex items-center justify-between px-6 h-auto shadow-lg hover:shadow-xl transition-shadow"

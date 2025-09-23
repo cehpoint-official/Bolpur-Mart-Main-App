@@ -31,7 +31,7 @@ export function MobileLayout({
   return (
     <div className="mobile-container">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-border">
+      <header className="sticky border top-0 z-50 bg-background/95 backdrop-blur-md ">
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center space-x-3">
             {showBackButton && (
@@ -56,16 +56,19 @@ export function MobileLayout({
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-y-auto pb-20 mobile-scroll">
+      <div className="flex-1 overflow-y-auto pb-20 mobile-scroll border">
         {children}
       </div>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-card border-t border-border z-50" data-testid="bottom-navigation">
-        <div className="flex items-center justify-around py-2">
+    <nav
+        className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-card border border-border z-50"
+        data-testid="bottom-navigation"
+      >
+                <div className="flex items-center justify-around py-3">
           <Button
             variant="ghost"
-            className={`flex flex-col items-center p-2 ${
+            className={`flex flex-col items-center  ${
               currentPage === 'home' ? 'text-primary' : 'text-muted-foreground'
             }`}
             onClick={() => handleNavigation("/")}
@@ -76,7 +79,7 @@ export function MobileLayout({
           </Button>
           <Button
             variant="ghost"
-            className={`flex flex-col items-center p-2 ${
+            className={`flex flex-col items-center ${
               currentPage === 'search' ? 'text-primary' : 'text-muted-foreground'
             }`}
             onClick={() => handleNavigation("/search")}
@@ -87,7 +90,7 @@ export function MobileLayout({
           </Button>
           <Button
             variant="ghost"
-            className={`flex flex-col items-center p-2 ${
+            className={`flex flex-col items-center ${
               currentPage === 'orders' ? 'text-primary' : 'text-muted-foreground'
             }`}
             onClick={() => handleNavigation("/orders")}
@@ -98,7 +101,7 @@ export function MobileLayout({
           </Button>
           <Button
             variant="ghost"
-            className={`flex flex-col items-center p-2 ${
+            className={`flex flex-col items-center ${
               currentPage === 'account' ? 'text-primary' : 'text-muted-foreground'
             }`}
             onClick={() => handleNavigation("/account")}

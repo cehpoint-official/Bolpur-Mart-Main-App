@@ -5,22 +5,23 @@ export interface FirebaseDocument {
   updatedAt?: string;
 }
 
-// User interface with additional Firebase-specific fields
+// User interface with payments array stored inside the document
 export interface User extends FirebaseDocument {
   email: string;
   name: string;
   phone?: string;
   avatar?: string;
   addresses: Address[];
+  payments: PaymentMethod[];
+  cart?: CartItem[];  
   preferences: UserPreferences;
-  
-  // Additional Firebase fields
   emailVerified?: boolean;
   profileCompleted?: boolean;
   authProvider?: 'email' | 'google';
   lastLoginAt?: string;
   lastLogoutAt?: string;
 }
+
 
 export interface Address {
   id: string;
@@ -37,25 +38,22 @@ export interface Address {
 
 export interface PaymentMethod {
   id: string;
-  type: 'card' | 'upi' | 'netbanking' | 'wallet';
+  type: 'card' | 'upi';
   name: string;
   details: string;
   isDefault: boolean;
   lastUsed?: string;
-  // Card specific fields
+
+  // Only for type: 'card'
   cardNumber?: string;
   expiryMonth?: string;
   expiryYear?: string;
   cardHolderName?: string;
   cardType?: 'visa' | 'mastercard' | 'rupay';
-  // UPI specific fields
+
+  // Only for type: 'upi'
   upiId?: string;
-  // Wallet specific fields
-  walletProvider?: string;
-  walletBalance?: number;
 }
-
-
 
 export interface UserPreferences {
   notifications: boolean;
@@ -63,6 +61,7 @@ export interface UserPreferences {
   language: string;
   currency: string;
 }
+
 
 // // Category interface
 // export interface Category extends FirebaseDocument {
