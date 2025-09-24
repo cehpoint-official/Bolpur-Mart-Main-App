@@ -49,15 +49,13 @@ export function FloatingCart({ userId, onOpenCart }: FloatingCartProps) {
       return sum + (price * item.quantity);
     }, 0);
     
-    const deliveryFee = subtotal > 500 ? 0 : 50;
-    const taxes = Math.round(subtotal * 0.05); // 5% tax
-    const total = subtotal + deliveryFee + taxes;
+    // const deliveryFee = subtotal > 500 ? 0 : 50;
+    // const taxes = Math.round(subtotal * 0.05); // 5% tax
+    const total = subtotal 
 
     return {
       itemCount,
       subtotal,
-      deliveryFee,
-      taxes,
       total
     }
   }, [items, products])

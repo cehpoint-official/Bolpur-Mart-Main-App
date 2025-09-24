@@ -1,3 +1,5 @@
+// types/index.ts
+
 // Base Firebase document interface
 export interface FirebaseDocument {
   id: string;
@@ -5,7 +7,7 @@ export interface FirebaseDocument {
   updatedAt?: string;
 }
 
-// User interface with payments array stored inside the document
+// User interface
 export interface User extends FirebaseDocument {
   email: string;
   name: string;
@@ -22,7 +24,6 @@ export interface User extends FirebaseDocument {
   lastLogoutAt?: string;
 }
 
-
 export interface Address {
   id: string;
   type: 'home' | 'work' | 'other';
@@ -34,6 +35,7 @@ export interface Address {
   pinCode: string;
   fullAddress: string;
   isDefault: boolean;
+  addressType?: 'home' | 'work' | 'other';
 }
 
 export interface PaymentMethod {
@@ -43,15 +45,11 @@ export interface PaymentMethod {
   details: string;
   isDefault: boolean;
   lastUsed?: string;
-
-  // Only for type: 'card'
   cardNumber?: string;
   expiryMonth?: string;
   expiryYear?: string;
   cardHolderName?: string;
   cardType?: 'visa' | 'mastercard' | 'rupay';
-
-  // Only for type: 'upi'
   upiId?: string;
 }
 
@@ -62,37 +60,6 @@ export interface UserPreferences {
   currency: string;
 }
 
-
-// // Category interface
-// export interface Category extends FirebaseDocument {
-//   name: string;
-//   slug: string;
-//   description?: string;
-//   image?: string;
-//   timeSlots: TimeSlotType[];
-//   isActive: boolean;
-//   sortOrder: number;
-// }
-
-// // Product interface
-// export interface Product {
-//   id: string
-//   name: string
-//   categories: string[]
-//   price: number
-//   stock: number
-//   vendorIds: string[]
-//   vendorName: string
-//   timeSlotIds: string[]
-//   description: string
-//   tags: string[]
-//   available: boolean
-//   createdAt?: Date
-//   updatedAt?: Date
-//   imageUrl?: string
-// }
-
-
 export interface ProductVariant {
   id: string;
   name: string;
@@ -101,48 +68,214 @@ export interface ProductVariant {
   attributes: Record<string, string>;
 }
 
-// Cart interface
+export interface Category {
+  id: string;
+  name: string;
+  description: string;
+  isActive: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface CategoryReference {
+  id: string;
+  name: string;
+}
+
+export interface TimeSlot {
+  id: string;
+  name: string;
+  label: string;
+  icon: string;
+  startTime: string;
+  endTime: string;
+  isActive: boolean;
+  order: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface TimeRuleSlot {
+  timeSlotName: string;
+  startTime: string;
+  endTime: string;
+  allowedCategories: CategoryReference[];
+  isActive: boolean;
+}
+
+export interface TimeRulesConfig {
+  [timeSlotId: string]: TimeRuleSlot;
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  location: string;
+  commission: number;
+  category: string[];
+  contactPerson: string;
+  phone: string;
+  email: string;
+  address: string;
+  isActive: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+  totalProducts: number;
+  totalOrders: number;
+  rating: number;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  categories: Category[];
+  price: number;
+  discountedPrice?: number;
+  discountPercentage?: number;
+  hasDiscount: boolean;
+  stock: number;
+  vendors: Vendor[];
+  description: string;
+  tags: string[];
+  available: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+  imageUrl?: string;
+  averageRating: number;
+  totalRatings: number;
+  ratingBreakdown: {
+    1: number;
+    2: number;
+    3: number;
+    4: number;
+    5: number;
+  };
+}
+
 export interface CartItem extends FirebaseDocument {
   userId: string;
   productId: string;
   quantity: number;
   variant?: string;
+  product?: Product;
 }
 
-// Extended cart item with product details
 export interface CartItemWithProduct extends CartItem {
   product: Product;
 }
 
-// Order interface
-export interface Order extends FirebaseDocument {
-  userId: string;
-  items: OrderItem[];
-  totalAmount: string;
-  deliveryAddress: Address;
-  status: OrderStatus;
-  paymentMethod: string;
-  paymentStatus: PaymentStatus;
-  estimatedDelivery?: string;
-  deliveryPersonId?: string;
-  notes?: string;
+export interface UpiPaymentMethod {
+  id: string;
+  name: string;
+  upiId: string;
+  qrImageUrl: string;
+  isActive: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export interface OrderItem {
   productId: string;
   productName: string;
   quantity: number;
-  price: string;
+  price: number;
+  total: number;
+  imageUrl?: string;
   variant?: string;
 }
 
-// Wishlist interface
+export interface DeliverySlot {
+  id: string;
+  type: "immediate" | "express" | "scheduled";
+  label: string;
+  description: string;
+  fee: number;
+  estimatedMinutes: number;
+  isAvailable: boolean;
+  scheduledDate?: string;
+  scheduledTime?: string;
+}
+
+export interface Order {
+  id: string;
+  orderNumber: string;
+  
+  customerId: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail?: string;
+
+  deliveryAddress: Address;
+  items: OrderItem[];
+  
+  subtotal: number;
+  deliveryFee: number;
+  taxes: number;
+  discount: number;
+  total: number;
+  
+  status: "placed" | "confirmed" | "preparing" | "out_for_delivery" | "delivered" | "cancelled" | "refunded";
+  paymentStatus: "pending" | "completed" | "failed" | "refunded";
+  paymentMethod: "cash_on_delivery" | "upi_online";
+  
+  paymentDetails?: {
+    // For UPI payments - all required
+    upiTransactionId: string;
+    paymentScreenshot: string;
+    upiId: string;
+    verificationStatus: "pending" | "verified" | "rejected";
+  } | {
+    // For COD payments - only verification status required
+    verificationStatus: "pending" | "verified" | "rejected";
+  };
+  
+  deliverySlot: {
+    type: "immediate" | "express" | "scheduled";
+    estimatedTime: Date;
+    actualDeliveryTime?: Date;
+    fee: number;
+    // Only include these for scheduled delivery
+    scheduledDate?: string;
+    scheduledTime?: string;
+  };
+  
+  notes?: string;
+  specialInstructions?: string;
+  
+  orderTracking?: {
+    placedAt: Date;
+    confirmedAt?: Date;
+    preparingAt?: Date;
+    outForDeliveryAt?: Date;
+    deliveredAt?: Date;
+  };
+  
+  createdAt: Date;
+  updatedAt: Date;
+  
+  isRefundable: boolean;
+  isCancellable: boolean;
+  estimatedDeliveryTime: Date;
+  
+  rating?: number;
+  review?: string;
+  reviewedAt?: Date;
+}
+
+export interface CartSummary {
+  itemCount: number;
+  subtotal: number;
+  deliveryFee: number;
+  taxes: number;
+  discount: number;
+  total: number;
+}
+
 export interface WishlistItem extends FirebaseDocument {
   userId: string;
   productId: string;
 }
 
-// Recommendation interface
 export interface Recommendation extends FirebaseDocument {
   userId: string;
   productId: string;
@@ -150,7 +283,6 @@ export interface Recommendation extends FirebaseDocument {
   reason?: string;
 }
 
-// Enums and Types
 export type TimeSlotType = 'morning' | 'afternoon' | 'evening' | 'night';
 
 export interface TimeSlotInfo {
@@ -170,97 +302,8 @@ export type OrderStatus =
   | 'cancelled';
 
 export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded';
-// Update your existing types with these additions
 
-
-export interface Category {
-  id: string
-  name: string
-  description: string
-  isActive: boolean
-  createdAt?: Date
-  updatedAt?: Date
-}
-
-export interface CategoryReference {
-  id: string
-  name: string
-}
-
-export interface TimeSlot {
-  id: string
-  name: string
-  label: string
-  icon: string
-  startTime: string // Format: "HH:MM"
-  endTime: string // Format: "HH:MM"
-  isActive: boolean
-  order: number // For sorting
-  createdAt?: Date
-  updatedAt?: Date
-}
-
-export interface TimeRuleSlot {
-  timeSlotName: string
-  startTime: string
-  endTime: string
-  allowedCategories: CategoryReference[]
-  isActive: boolean
-}
-
-export interface TimeRulesConfig {
-  [timeSlotId: string]: TimeRuleSlot
-}
-
-export interface Vendor {
-  id: string
-  name: string
-  location: string
-  commission: number
-  category: string[]
-  contactPerson: string
-  phone: string
-  email: string
-  address: string
-  isActive: boolean
-  createdAt?: Date
-  updatedAt?: Date
-  totalProducts: number
-  totalOrders: number
-  rating: number
-}
-
-export interface Product {
-  id: string
-  name: string
-  categories: Category[]
-  price: number // Original price
-  discountedPrice?: number // Optional - only exists when hasDiscount is true
-  discountPercentage?: number // Optional - only exists when hasDiscount is true
-  hasDiscount: boolean // Whether product has discount or not
-  stock: number
-  vendors: Vendor[]
-  description: string
-  tags: string[]
-  available: boolean
-  createdAt?: Date
-  updatedAt?: Date
-  imageUrl?: string
-  // Rating fields
-  averageRating: number
-  totalRatings: number
-  ratingBreakdown: {
-    1: number
-    2: number
-    3: number
-    4: number
-    5: number
-  }
-}
-
-
-
-// Input types (for creating documents without id and timestamps)
+// Input types
 export type CreateUser = Omit<User, keyof FirebaseDocument>;
 export type CreateCategory = Omit<Category, keyof FirebaseDocument>;
 export type CreateProduct = Omit<Product, keyof FirebaseDocument>;
@@ -269,7 +312,7 @@ export type CreateOrder = Omit<Order, keyof FirebaseDocument>;
 export type CreateWishlistItem = Omit<WishlistItem, keyof FirebaseDocument>;
 export type CreateRecommendation = Omit<Recommendation, keyof FirebaseDocument>;
 
-// Update types (partial updates)
+// Update types
 export type UpdateUser = Partial<CreateUser>;
 export type UpdateCategory = Partial<CreateCategory>;
 export type UpdateProduct = Partial<CreateProduct>;

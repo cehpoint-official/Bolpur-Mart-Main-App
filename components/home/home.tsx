@@ -40,7 +40,6 @@ import { useTimeSlot } from "@/hooks/use-time-slot";
 import { useAuth } from "@/hooks/use-auth";
 import { FirebaseProductService } from "@/lib/firebase-products";
 import type { Product, CategoryReference } from "@/types";
-import Image from "next/image";
 
 // Static notifications data
 const STATIC_NOTIFICATIONS = [

@@ -65,11 +65,18 @@ export function CartModal({
     });
   }, [items, products]);
 
-  // Calculate cart summary
+  // Calculate cart summary with discount details
   const cartSummary = useMemo(() => {
     const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
     
-    const subtotal = cartItems.reduce((sum, item) => {
+    // Calculate original total (without discounts)
+    const originalTotal = cartItems.reduce((sum, item) => {
+      if (!item.product) return sum;
+      return sum + (item.product.price * item.quantity);
+    }, 0);
+    
+    // Calculate discounted total
+    const discountedTotal = cartItems.reduce((sum, item) => {
       if (!item.product) return sum;
       
       const price = item.product.hasDiscount && item.product.discountedPrice 
@@ -79,16 +86,19 @@ export function CartModal({
       return sum + (price * item.quantity);
     }, 0);
     
-    const deliveryFee = subtotal > 500 ? 0 : 50;
-    const taxes = Math.round(subtotal * 0.05); // 5% tax
-    const total = subtotal + deliveryFee + taxes;
-
+    // Calculate total discount amount
+    const totalDiscount = originalTotal - discountedTotal;
+    
+    // Calculate average discount percentage
+    const discountPercentage = originalTotal > 0 ? Math.round((totalDiscount / originalTotal) * 100) : 0;
+    
     return {
       itemCount,
-      subtotal,
-      deliveryFee,
-      taxes,
-      total
+      originalTotal,
+      discountedTotal,
+      totalDiscount,
+      discountPercentage,
+      finalTotal: discountedTotal // This is the final amount to pay
     };
   }, [cartItems]);
 
@@ -110,6 +120,11 @@ export function CartModal({
     return product.hasDiscount && product.discountedPrice 
       ? product.discountedPrice 
       : product.price;
+  };
+
+  const getItemOriginalPrice = (product: Product | undefined) => {
+    if (!product) return 0;
+    return product.price;
   };
 
   return (
@@ -150,7 +165,10 @@ export function CartModal({
             <div className="flex-1 overflow-y-auto space-y-4 mb-6">
               {cartItems.map((item) => {
                 const product = item.product;
-                const price = getItemPrice(product);
+                const currentPrice = getItemPrice(product);
+                const originalPrice = getItemOriginalPrice(product);
+                const hasDiscount = product?.hasDiscount && product?.discountedPrice;
+                
                 const imageUrl = product?.imageUrl
                   ? getOptimizedImageUrl(product.imageUrl, {
                       width: 80,
@@ -186,12 +204,24 @@ export function CartModal({
                           {item.variant}
                         </p>
                       )}
-                      <p
-                        className="font-semibold text-primary"
-                        data-testid={`cart-item-price-${item.id}`}
-                      >
-                        ₹{price}
-                      </p>
+                      <div className="flex items-center space-x-2">
+                        <p
+                          className="font-semibold text-primary"
+                          data-testid={`cart-item-price-${item.id}`}
+                        >
+                          ₹{currentPrice}
+                        </p>
+                        {hasDiscount && (
+                          <>
+                            <span className="text-xs text-muted-foreground line-through">
+                              ₹{originalPrice}
+                            </span>
+                            <span className="text-xs text-green-600 font-medium">
+                              {product?.discountPercentage}% OFF
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center space-x-2">
                       <Button
@@ -240,7 +270,7 @@ export function CartModal({
               })}
             </div>
 
-            {/* Billing summary */}
+            {/* Billing summary with discount details */}
             <div
               className="flex-shrink-0 bg-muted/50 p-4 rounded-xl mb-4"
               data-testid="bill-details"
@@ -248,30 +278,44 @@ export function CartModal({
               <h3 className="font-semibold mb-3">Bill Details</h3>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span>Item Total</span>
-                  <span data-testid="bill-subtotal">
-                    ₹{cartSummary.subtotal.toFixed(0)}
+                  <span>Item Total (MRP)</span>
+                  <span data-testid="bill-original-total">
+                    ₹{cartSummary.originalTotal.toFixed(0)}
                   </span>
                 </div>
-                <div className="flex justify-between text-green-600">
-                  <span>Delivery Fee</span>
-                  <span data-testid="bill-delivery-fee">
-                    {cartSummary.deliveryFee === 0
-                      ? "FREE"
-                      : `₹${cartSummary.deliveryFee}`}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Taxes & Charges</span>
-                  <span data-testid="bill-taxes">₹{cartSummary.taxes}</span>
-                </div>
+                
+                {cartSummary.totalDiscount > 0 && (
+                  <>
+                    <div className="flex justify-between text-green-600">
+                      <span>
+                        Product Discount ({cartSummary.discountPercentage}% OFF)
+                      </span>
+                      <span data-testid="bill-discount">
+                        -₹{cartSummary.totalDiscount.toFixed(0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-green-600 font-medium">
+                      <span>Total Savings</span>
+                      <span data-testid="bill-total-savings">
+                        ₹{cartSummary.totalDiscount.toFixed(0)}
+                      </span>
+                    </div>
+                  </>
+                )}
+                
                 <Separator className="my-2" />
                 <div className="flex justify-between font-bold text-lg">
-                  <span>Total</span>
+                  <span>Total Amount</span>
                   <span data-testid="bill-total">
-                    ₹{cartSummary.total.toFixed(0)}
+                    ₹{cartSummary.finalTotal.toFixed(0)}
                   </span>
                 </div>
+                
+                {cartSummary.totalDiscount > 0 && (
+                  <div className="text-center text-green-600 text-sm font-medium">
+                    🎉 You saved ₹{cartSummary.totalDiscount.toFixed(0)} on this order!
+                  </div>
+                )}
               </div>
             </div>
 
