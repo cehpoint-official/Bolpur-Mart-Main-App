@@ -6,6 +6,8 @@ import {
   getDoc,
   query,
   where,
+  updateDoc,
+  setDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { Product, TimeRulesConfig, CategoryReference } from "@/types";
@@ -84,121 +86,126 @@ export class FirebaseProductService {
   }
 
   // Fetch products based on time slot and filters
-static async getProducts(
-  searchQuery?: string,
-  categoryFilter?: string | string[]
-): Promise<Product[]> {
-  try {
-    console.log("Fetching products...", { searchQuery, categoryFilter });
+  static async getProducts(
+    searchQuery?: string,
+    categoryFilter?: string | string[]
+  ): Promise<Product[]> {
+    try {
+      console.log("Fetching products...", { searchQuery, categoryFilter });
 
-    // First get time rules
-    const timeRules = await this.getTimeRules();
-    if (!timeRules) {
-      console.log("No time rules found, returning empty array");
-      return [];
-    }
-
-    // Get current time slot
-    const currentSlotId = this.getCurrentTimeSlotId(timeRules);
-    if (!currentSlotId) {
-      console.log("No active time slot, returning empty array");
-      return [];
-    }
-
-    // Get allowed categories for current time slot
-    const allowedCategories = this.getAllowedCategories(
-      timeRules,
-      currentSlotId
-    );
-    const allowedCategoryIds = allowedCategories.map((cat) => cat.id);
-
-    console.log("Allowed category IDs:", allowedCategoryIds);
-
-    // Build Firestore query
-    let productsQuery = query(
-      collection(db, "products"),
-      where("available", "==", true)
-    );
-
-    // Execute query
-    const querySnapshot = await getDocs(productsQuery);
-    let products: Product[] = [];
-
-    querySnapshot.forEach((doc) => {
-      const productData = doc.data();
-      const product: Product = {
-        id: doc.id,
-        ...productData,
-      } as Product;
-
-      // Filter by time slot categories
-      const hasAllowedCategory = product.categories.some((category) =>
-        allowedCategoryIds.includes(category.id)
-      );
-
-      if (!hasAllowedCategory) {
-        console.log(
-          `Product ${product.name} doesn't have allowed categories`
-        );
-        return;
+      // First get time rules
+      const timeRules = await this.getTimeRules();
+      if (!timeRules) {
+        console.log("No time rules found, returning empty array");
+        return [];
       }
 
-      // Apply search filter
-      if (searchQuery && searchQuery.trim() !== "") {
-        const searchLower = searchQuery.toLowerCase();
-        const matchesSearch =
-          product.name.toLowerCase().includes(searchLower) ||
-          product.description.toLowerCase().includes(searchLower) ||
-          product.tags.some((tag) =>
-            tag.toLowerCase().includes(searchLower)
-          ) ||
-          product.categories.some((cat) =>
-            cat.name.toLowerCase().includes(searchLower)
-          );
+      // Get current time slot
+      const currentSlotId = this.getCurrentTimeSlotId(timeRules);
+      if (!currentSlotId) {
+        console.log("No active time slot, returning empty array");
+        return [];
+      }
 
-        if (!matchesSearch) {
+      // Get allowed categories for current time slot
+      const allowedCategories = this.getAllowedCategories(
+        timeRules,
+        currentSlotId
+      );
+      const allowedCategoryIds = allowedCategories.map((cat) => cat.id);
+
+      console.log("Allowed category IDs:", allowedCategoryIds);
+
+      // Build Firestore query
+      let productsQuery = query(
+        collection(db, "products"),
+        where("available", "==", true)
+      );
+
+      // Execute query
+      const querySnapshot = await getDocs(productsQuery);
+      let products: Product[] = [];
+
+      querySnapshot.forEach((doc) => {
+        const productData = doc.data();
+        const product: Product = {
+          id: doc.id,
+          ...productData,
+        } as Product;
+
+        // Filter by time slot categories
+        const hasAllowedCategory = product.categories.some((category) =>
+          allowedCategoryIds.includes(category.id)
+        );
+
+        if (!hasAllowedCategory) {
           console.log(
-            `Product ${product.name} doesn't match search: ${searchQuery}`
+            `Product ${product.name} doesn't have allowed categories`
           );
           return;
         }
-      }
 
-      // Apply category filter - Updated to support both single and multiple categories
-      if (categoryFilter) {
-        const categoryFilters = Array.isArray(categoryFilter) 
-          ? categoryFilter 
-          : [categoryFilter];
-        
-        // Filter out empty strings
-        const validCategoryFilters = categoryFilters.filter(cat => cat.trim() !== "");
-        
-        if (validCategoryFilters.length > 0) {
-          const hasSelectedCategory = product.categories.some(
-            (cat) => validCategoryFilters.includes(cat.id)
-          );
-          
-          if (!hasSelectedCategory) {
+        // Apply search filter
+        if (searchQuery && searchQuery.trim() !== "") {
+          const searchLower = searchQuery.toLowerCase();
+          const matchesSearch =
+            product.name.toLowerCase().includes(searchLower) ||
+            product.description.toLowerCase().includes(searchLower) ||
+            product.tags.some((tag) =>
+              tag.toLowerCase().includes(searchLower)
+            ) ||
+            product.categories.some((cat) =>
+              cat.name.toLowerCase().includes(searchLower)
+            );
+
+          if (!matchesSearch) {
             console.log(
-              `Product ${product.name} doesn't match category filter: ${JSON.stringify(validCategoryFilters)}`
+              `Product ${product.name} doesn't match search: ${searchQuery}`
             );
             return;
           }
         }
-      }
 
-      console.log(`Product ${product.name} matches all filters`);
-      products.push(product);
-    });
+        // Apply category filter - Updated to support both single and multiple categories
+        if (categoryFilter) {
+          const categoryFilters = Array.isArray(categoryFilter)
+            ? categoryFilter
+            : [categoryFilter];
 
-    console.log(`Returning ${products.length} products`);
-    return products;
-  } catch (error) {
-    console.error("Error fetching products:", error);
-    return [];
+          // Filter out empty strings
+          const validCategoryFilters = categoryFilters.filter(
+            (cat) => cat.trim() !== ""
+          );
+
+          if (validCategoryFilters.length > 0) {
+            const hasSelectedCategory = product.categories.some((cat) =>
+              validCategoryFilters.includes(cat.id)
+            );
+
+            if (!hasSelectedCategory) {
+              console.log(
+                `Product ${
+                  product.name
+                } doesn't match category filter: ${JSON.stringify(
+                  validCategoryFilters
+                )}`
+              );
+              return;
+            }
+          }
+        }
+
+        console.log(`Product ${product.name} matches all filters`);
+        products.push(product);
+      });
+
+      console.log(`Returning ${products.length} products`);
+      return products;
+    } catch (error) {
+      console.error("Error fetching products:", error);
+      return [];
+    }
   }
-}
-
 
   // Get categories available in current time slot
   static async getAvailableCategories(): Promise<CategoryReference[]> {
@@ -240,6 +247,85 @@ static async getProducts(
       return product;
     } catch (error) {
       console.error(`Error fetching product ${productId}:`, error);
+      return null;
+    }
+  }
+
+ static async updateProductRating(
+    productId: string,
+    newRating: number,
+    userId: string
+  ): Promise<boolean> {
+    try {
+      const productRef = doc(db, "products", productId);
+      const productDoc = await getDoc(productRef);
+      
+      if (!productDoc.exists()) {
+        throw new Error('Product not found');
+      }
+      
+      const currentData = productDoc.data();
+      
+      // Type-safe rating breakdown with proper typing
+      const currentRatingBreakdown: Record<number, number> = currentData.ratingBreakdown || {
+        1: 0, 2: 0, 3: 0, 4: 0, 5: 0
+      };
+      
+      // Update rating breakdown with proper typing
+      const newRatingBreakdown = { ...currentRatingBreakdown };
+      newRatingBreakdown[newRating] = (newRatingBreakdown[newRating] || 0) + 1;
+      
+      // Calculate new totals with proper type assertions
+      const newTotalRatings = (currentData.totalRatings || 0) + 1;
+      
+      // Calculate total score with proper typing
+      const totalScore = Object.entries(newRatingBreakdown).reduce(
+        (sum, [rating, count]) => {
+          const ratingNum = parseInt(rating);
+          const countNum = typeof count === 'number' ? count : 0;
+          return sum + (ratingNum * countNum);
+        }, 
+        0
+      );
+      
+      const newAverageRating = totalScore / newTotalRatings;
+      
+      // Update product
+      await updateDoc(productRef, {
+        ratingBreakdown: newRatingBreakdown,
+        totalRatings: newTotalRatings,
+        averageRating: Number(newAverageRating.toFixed(1)),
+        updatedAt: new Date().toISOString()
+      });
+      
+      // Store user rating to prevent duplicate ratings
+      const userRatingRef = doc(db, 'userProductRatings', `${userId}_${productId}`);
+      await setDoc(userRatingRef, {
+        userId,
+        productId,
+        rating: newRating,
+        ratedAt: new Date().toISOString()
+      });
+      
+      return true;
+    } catch (error) {
+      console.error('Error updating product rating:', error);
+      throw error;
+    }
+  }
+
+  static async getUserProductRating(userId: string, productId: string): Promise<number | null> {
+    try {
+      const userRatingRef = doc(db, 'userProductRatings', `${userId}_${productId}`);
+      const userRatingDoc = await getDoc(userRatingRef);
+      
+      if (userRatingDoc.exists()) {
+        return userRatingDoc.data().rating;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error fetching user product rating:', error);
       return null;
     }
   }

@@ -40,46 +40,8 @@ import { useTimeSlot } from "@/hooks/use-time-slot";
 import { useAuth } from "@/hooks/use-auth";
 import { FirebaseProductService } from "@/lib/firebase-products";
 import type { Product, CategoryReference } from "@/types";
+import { NotificationBell } from "../ui/notification-bell";
 
-// Static notifications data
-const STATIC_NOTIFICATIONS = [
-  {
-    id: "1",
-    title: "Order Delivered! 🎉",
-    message: "Your Biryani order has been delivered successfully",
-    time: "2 minutes ago",
-    type: "success",
-    icon: Package,
-    unread: true,
-  },
-  {
-    id: "2",
-    title: "Special Offer! 🔥",
-    message: "Get 40% off on all vegetables today only",
-    time: "1 hour ago",
-    type: "offer",
-    icon: Percent,
-    unread: true,
-  },
-  {
-    id: "3",
-    title: "New Arrival! ✨",
-    message: "Fresh organic fruits now available in your area",
-    time: "3 hours ago",
-    type: "info",
-    icon: Gift,
-    unread: false,
-  },
-  {
-    id: "4",
-    title: "Delivery Update",
-    message: "Your evening order will arrive in 15 minutes",
-    time: "5 hours ago",
-    type: "update",
-    icon: Clock,
-    unread: false,
-  },
-];
 
 interface LocationState {
   city: string;
@@ -96,8 +58,6 @@ export default function Home() {
   const [showFilters, setShowFilters] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState(STATIC_NOTIFICATIONS);
   const [location, setLocation] = useState<LocationState>({
     city: "Bolpur",
     state: "West Bengal",
@@ -364,32 +324,6 @@ export default function Home() {
     };
   }, [hasMore, isLoadingMore, page, searchQuery, selectedCategory, loadProducts, products.length]);
 
-  // Handle notification bell click
-  const handleNotificationClick = () => {
-    setShowNotifications(!showNotifications);
-    if (!showNotifications) {
-      setNotifications((prev) =>
-        prev.map((notif) => ({ ...notif, unread: false }))
-      );
-    }
-  };
-
-  const unreadCount = notifications.filter((n) => n.unread).length;
-
-  const getNotificationIconColor = (type: string) => {
-    switch (type) {
-      case "success":
-        return "text-green-600";
-      case "offer":
-        return "text-orange-600";
-      case "info":
-        return "text-blue-600";
-      case "update":
-        return "text-purple-600";
-      default:
-        return "text-gray-600";
-    }
-  };
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
@@ -481,86 +415,7 @@ export default function Home() {
 
           <div className="flex items-center space-x-2">
             {/* Notification Bell */}
-            <div className="relative">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="relative border rounded-full hover:bg-gray-200"
-                onClick={handleNotificationClick}
-                data-testid="notifications-button"
-              >
-                <Bell size={20} />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-white text-xs rounded-full flex items-center justify-center font-medium">
-                    {unreadCount > 9 ? "9+" : unreadCount}
-                  </span>
-                )}
-              </Button>
-
-              {/* Notification Dropdown */}
-              {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-[60] animate-in slide-in-from-top-2 duration-200">
-                  <div className="p-4 border-b border-gray-100">
-                    <h3 className="font-semibold text-lg">Notifications</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {unreadCount > 0
-                        ? `${unreadCount} new notifications`
-                        : "All caught up!"}
-                    </p>
-                  </div>
-
-                  <div className="max-h-96 overflow-y-auto">
-                    {notifications.map((notification) => {
-                      const IconComponent = notification.icon;
-                      return (
-                        <div
-                          key={notification.id}
-                          className={`p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors ${
-                            notification.unread ? "bg-blue-50/50" : ""
-                          }`}
-                        >
-                          <div className="flex items-start space-x-3">
-                            <div
-                              className={`p-2 rounded-full bg-gray-100 ${getNotificationIconColor(
-                                notification.type
-                              )}`}
-                            >
-                              <IconComponent size={16} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center space-x-2">
-                                <h4 className="font-medium text-sm truncate">
-                                  {notification.title}
-                                </h4>
-                                {notification.unread && (
-                                  <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
-                                )}
-                              </div>
-                              <p className="text-sm text-gray-600 mt-1">
-                                {notification.message}
-                              </p>
-                              <p className="text-xs text-gray-400 mt-2">
-                                {notification.time}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="p-3 border-t border-gray-100">
-                    <Button
-                      variant="ghost"
-                      className="w-full text-sm"
-                      onClick={() => setShowNotifications(false)}
-                    >
-                      Close
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <NotificationBell />
 
             {/* User Profile or Login Button */}
             {authLoading ? (
@@ -603,13 +458,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Click outside to close notifications */}
-      {showNotifications && (
-        <div
-          className="fixed inset-0 z-[55]"
-          onClick={() => setShowNotifications(false)}
-        />
-      )}
+
 
       {/* Time-Based Banner */}
       <TimeBanner />

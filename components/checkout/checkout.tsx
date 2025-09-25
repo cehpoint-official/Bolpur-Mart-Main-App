@@ -1245,7 +1245,7 @@ export default function Checkout() {
         )}
       </div>
 
-      {/* Order Confirmation Dialog */}
+      {/* Order Confirmation Dialog */}z
       <OrderConfirmationDialog
         isOpen={showOrderConfirmation}
         order={currentOrder}

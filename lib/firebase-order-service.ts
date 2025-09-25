@@ -10,16 +10,23 @@ import {
   where,
   orderBy,
   limit,
-  serverTimestamp,
   writeBatch,
+  DocumentSnapshot,
+  startAfter,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type { Order, OrderItem, Address, DeliverySlot } from "@/types";
+import type { Order, OrderItem, Address } from "@/types";
+
+export interface OrdersQueryResult {
+  orders: Order[];
+  lastDoc: DocumentSnapshot | null;
+  hasMore: boolean;
+  total: number;
+}
 
 export class FirebaseOrderService {
   private static ordersCollection = "orders";
   private static notificationsCollection = "notifications";
-  private static settingsCollection = "settings";
 
   // Generate unique order ID
   static generateOrderId(): string {
@@ -28,7 +35,138 @@ export class FirebaseOrderService {
     return `ORD${timestamp.slice(-8)}${randomPart}`;
   }
 
-  // Create new order
+  // Get user orders with pagination
+  static async getUserOrdersPaginated(
+    userId: string,
+    limitCount: number = 10,
+    lastDocument?: DocumentSnapshot | null
+  ): Promise<OrdersQueryResult> {
+    try {
+      const ordersRef = collection(db, this.ordersCollection);
+
+      let q = query(
+        ordersRef,
+        where("customerId", "==", userId),
+        orderBy("createdAt", "desc"),
+        limit(limitCount + 1) // Get one extra to check if there are more
+      );
+
+      if (lastDocument) {
+        q = query(
+          ordersRef,
+          where("customerId", "==", userId),
+          orderBy("createdAt", "desc"),
+          startAfter(lastDocument),
+          limit(limitCount + 1)
+        );
+      }
+
+      const querySnapshot = await getDocs(q);
+      const docs = querySnapshot.docs;
+
+      // Check if there are more documents
+      const hasMore = docs.length > limitCount;
+      const orders: Order[] = [];
+
+      // Process documents (excluding the extra one if it exists)
+      const docsToProcess = hasMore ? docs.slice(0, -1) : docs;
+
+      docsToProcess.forEach((doc) => {
+        const data = doc.data();
+        orders.push({
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt
+            ? typeof data.createdAt === "string"
+              ? new Date(data.createdAt)
+              : data.createdAt.toDate()
+            : new Date(),
+          updatedAt: data.updatedAt
+            ? typeof data.updatedAt === "string"
+              ? new Date(data.updatedAt)
+              : data.updatedAt.toDate()
+            : new Date(),
+          estimatedDeliveryTime: data.estimatedDeliveryTime
+            ? typeof data.estimatedDeliveryTime === "string"
+              ? new Date(data.estimatedDeliveryTime)
+              : data.estimatedDeliveryTime.toDate()
+            : new Date(),
+          deliverySlot: {
+            ...data.deliverySlot,
+            estimatedTime: data.deliverySlot.estimatedTime
+              ? typeof data.deliverySlot.estimatedTime === "string"
+                ? new Date(data.deliverySlot.estimatedTime)
+                : data.deliverySlot.estimatedTime.toDate()
+              : new Date(),
+            actualDeliveryTime: data.deliverySlot.actualDeliveryTime
+              ? typeof data.deliverySlot.actualDeliveryTime === "string"
+                ? new Date(data.deliverySlot.actualDeliveryTime)
+                : data.deliverySlot.actualDeliveryTime.toDate()
+              : undefined,
+          },
+          orderTracking: {
+            placedAt: data.orderTracking?.placedAt
+              ? typeof data.orderTracking.placedAt === "string"
+                ? new Date(data.orderTracking.placedAt)
+                : data.orderTracking.placedAt.toDate()
+              : new Date(),
+            confirmedAt: data.orderTracking?.confirmedAt
+              ? typeof data.orderTracking.confirmedAt === "string"
+                ? new Date(data.orderTracking.confirmedAt)
+                : data.orderTracking.confirmedAt.toDate()
+              : undefined,
+            preparingAt: data.orderTracking?.preparingAt
+              ? typeof data.orderTracking.preparingAt === "string"
+                ? new Date(data.orderTracking.preparingAt)
+                : data.orderTracking.preparingAt.toDate()
+              : undefined,
+            outForDeliveryAt: data.orderTracking?.outForDeliveryAt
+              ? typeof data.orderTracking.outForDeliveryAt === "string"
+                ? new Date(data.orderTracking.outForDeliveryAt)
+                : data.orderTracking.outForDeliveryAt.toDate()
+              : undefined,
+            deliveredAt: data.orderTracking?.deliveredAt
+              ? typeof data.orderTracking.deliveredAt === "string"
+                ? new Date(data.orderTracking.deliveredAt)
+                : data.orderTracking.deliveredAt.toDate()
+              : undefined,
+          },
+          reviewedAt: data.reviewedAt
+            ? typeof data.reviewedAt === "string"
+              ? new Date(data.reviewedAt)
+              : data.reviewedAt.toDate()
+            : undefined,
+        } as Order);
+      });
+
+      // Get the last document for pagination
+      const lastDoc =
+        docsToProcess.length > 0
+          ? docsToProcess[docsToProcess.length - 1]
+          : null;
+
+      // Get total count (can be expensive for large collections - consider caching)
+      const totalQuery = query(ordersRef, where("customerId", "==", userId));
+      const totalSnapshot = await getDocs(totalQuery);
+      const total = totalSnapshot.size;
+
+      return {
+        orders,
+        lastDoc,
+        hasMore,
+        total,
+      };
+    } catch (error) {
+      console.error("Error fetching user orders:", error);
+      return {
+        orders: [],
+        lastDoc: null,
+        hasMore: false,
+        total: 0,
+      };
+    }
+  }
+
   // Create new order
   static async createOrder(orderData: {
     customerId: string;
@@ -62,11 +200,12 @@ export class FirebaseOrderService {
     try {
       const orderNumber = this.generateOrderId();
       const now = new Date();
+      const nowISO = now.toISOString();
 
       // Build clean delivery slot
       const deliverySlot: any = {
         type: orderData.deliverySlot.type,
-        estimatedTime: orderData.deliverySlot.estimatedTime,
+        estimatedTime: orderData.deliverySlot.estimatedTime.toISOString(),
         fee: orderData.deliverySlot.fee,
       };
 
@@ -133,14 +272,22 @@ export class FirebaseOrderService {
         Object.entries(order).filter(([_, value]) => value !== undefined)
       );
 
-      const docRef = await addDoc(collection(db, this.ordersCollection), {
+      // Convert dates to ISO strings for Firestore
+      const firestoreOrder = {
         ...cleanOrder,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        createdAt: nowISO,
+        updatedAt: nowISO,
+        estimatedDeliveryTime:
+          orderData.deliverySlot.estimatedTime.toISOString(),
         orderTracking: {
-          placedAt: serverTimestamp(),
+          placedAt: nowISO,
         },
-      });
+      };
+
+      const docRef = await addDoc(
+        collection(db, this.ordersCollection),
+        firestoreOrder
+      );
 
       const createdOrder: Order = {
         id: docRef.id,
@@ -158,6 +305,7 @@ export class FirebaseOrderService {
   // Create notifications for order
   static async createOrderNotifications(order: Order): Promise<void> {
     const batch = writeBatch(db);
+    const nowISO = new Date().toISOString();
 
     // Admin notification
     const adminNotificationRef = doc(
@@ -174,7 +322,7 @@ export class FirebaseOrderService {
       total: order.total,
       isRead: false,
       targetAudience: "admin",
-      createdAt: serverTimestamp(),
+      createdAt: nowISO,
       priority: "high",
     });
 
@@ -192,57 +340,21 @@ export class FirebaseOrderService {
       total: order.total,
       isRead: false,
       targetAudience: "customer",
-      createdAt: serverTimestamp(),
+      createdAt: nowISO,
       priority: "normal",
     });
 
     await batch.commit();
   }
 
-  // Get user orders
+  // Get user orders (legacy method - kept for compatibility)
   static async getUserOrders(
     userId: string,
     limitCount: number = 20
   ): Promise<Order[]> {
     try {
-      const ordersRef = collection(db, this.ordersCollection);
-      const q = query(
-        ordersRef,
-        where("customerId", "==", userId),
-        orderBy("createdAt", "desc"),
-        limit(limitCount)
-      );
-
-      const querySnapshot = await getDocs(q);
-      const orders: Order[] = [];
-
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        orders.push({
-          id: doc.id,
-          ...data,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-          estimatedDeliveryTime:
-            data.estimatedDeliveryTime?.toDate() || new Date(),
-          deliverySlot: {
-            ...data.deliverySlot,
-            estimatedTime:
-              data.deliverySlot.estimatedTime?.toDate() || new Date(),
-            actualDeliveryTime: data.deliverySlot.actualDeliveryTime?.toDate(),
-          },
-          orderTracking: {
-            placedAt: data.orderTracking?.placedAt?.toDate() || new Date(),
-            confirmedAt: data.orderTracking?.confirmedAt?.toDate(),
-            preparingAt: data.orderTracking?.preparingAt?.toDate(),
-            outForDeliveryAt: data.orderTracking?.outForDeliveryAt?.toDate(),
-            deliveredAt: data.orderTracking?.deliveredAt?.toDate(),
-          },
-          reviewedAt: data.reviewedAt?.toDate(),
-        } as Order);
-      });
-
-      return orders;
+      const result = await this.getUserOrdersPaginated(userId, limitCount);
+      return result.orders;
     } catch (error) {
       console.error("Error fetching user orders:", error);
       return [];
@@ -260,24 +372,66 @@ export class FirebaseOrderService {
       return {
         id: orderDoc.id,
         ...data,
-        createdAt: data.createdAt?.toDate() || new Date(),
-        updatedAt: data.updatedAt?.toDate() || new Date(),
-        estimatedDeliveryTime:
-          data.estimatedDeliveryTime?.toDate() || new Date(),
+        createdAt: data.createdAt
+          ? typeof data.createdAt === "string"
+            ? new Date(data.createdAt)
+            : data.createdAt.toDate()
+          : new Date(),
+        updatedAt: data.updatedAt
+          ? typeof data.updatedAt === "string"
+            ? new Date(data.updatedAt)
+            : data.updatedAt.toDate()
+          : new Date(),
+        estimatedDeliveryTime: data.estimatedDeliveryTime
+          ? typeof data.estimatedDeliveryTime === "string"
+            ? new Date(data.estimatedDeliveryTime)
+            : data.estimatedDeliveryTime.toDate()
+          : new Date(),
         deliverySlot: {
           ...data.deliverySlot,
-          estimatedTime:
-            data.deliverySlot.estimatedTime?.toDate() || new Date(),
-          actualDeliveryTime: data.deliverySlot.actualDeliveryTime?.toDate(),
+          estimatedTime: data.deliverySlot.estimatedTime
+            ? typeof data.deliverySlot.estimatedTime === "string"
+              ? new Date(data.deliverySlot.estimatedTime)
+              : data.deliverySlot.estimatedTime.toDate()
+            : new Date(),
+          actualDeliveryTime: data.deliverySlot.actualDeliveryTime
+            ? typeof data.deliverySlot.actualDeliveryTime === "string"
+              ? new Date(data.deliverySlot.actualDeliveryTime)
+              : data.deliverySlot.actualDeliveryTime.toDate()
+            : undefined,
         },
         orderTracking: {
-          placedAt: data.orderTracking?.placedAt?.toDate() || new Date(),
-          confirmedAt: data.orderTracking?.confirmedAt?.toDate(),
-          preparingAt: data.orderTracking?.preparingAt?.toDate(),
-          outForDeliveryAt: data.orderTracking?.outForDeliveryAt?.toDate(),
-          deliveredAt: data.orderTracking?.deliveredAt?.toDate(),
+          placedAt: data.orderTracking?.placedAt
+            ? typeof data.orderTracking.placedAt === "string"
+              ? new Date(data.orderTracking.placedAt)
+              : data.orderTracking.placedAt.toDate()
+            : new Date(),
+          confirmedAt: data.orderTracking?.confirmedAt
+            ? typeof data.orderTracking.confirmedAt === "string"
+              ? new Date(data.orderTracking.confirmedAt)
+              : data.orderTracking.confirmedAt.toDate()
+            : undefined,
+          preparingAt: data.orderTracking?.preparingAt
+            ? typeof data.orderTracking.preparingAt === "string"
+              ? new Date(data.orderTracking.preparingAt)
+              : data.orderTracking.preparingAt.toDate()
+            : undefined,
+          outForDeliveryAt: data.orderTracking?.outForDeliveryAt
+            ? typeof data.orderTracking.outForDeliveryAt === "string"
+              ? new Date(data.orderTracking.outForDeliveryAt)
+              : data.orderTracking.outForDeliveryAt.toDate()
+            : undefined,
+          deliveredAt: data.orderTracking?.deliveredAt
+            ? typeof data.orderTracking.deliveredAt === "string"
+              ? new Date(data.orderTracking.deliveredAt)
+              : data.orderTracking.deliveredAt.toDate()
+            : undefined,
         },
-        reviewedAt: data.reviewedAt?.toDate(),
+        reviewedAt: data.reviewedAt
+          ? typeof data.reviewedAt === "string"
+            ? new Date(data.reviewedAt)
+            : data.reviewedAt.toDate()
+          : undefined,
       } as Order;
     } catch (error) {
       console.error("Error fetching order:", error);
@@ -292,14 +446,15 @@ export class FirebaseOrderService {
     trackingUpdate?: Partial<Order["orderTracking"]>
   ): Promise<void> {
     try {
+      const nowISO = new Date().toISOString();
       const updateData: any = {
         status,
-        updatedAt: serverTimestamp(),
+        updatedAt: nowISO,
       };
 
       if (trackingUpdate) {
-        updateData[`orderTracking.${Object.keys(trackingUpdate)[0]}`] =
-          serverTimestamp();
+        const trackingField = Object.keys(trackingUpdate)[0];
+        updateData[`orderTracking.${trackingField}`] = nowISO;
       }
 
       await updateDoc(doc(db, this.ordersCollection, orderId), updateData);
@@ -312,16 +467,23 @@ export class FirebaseOrderService {
   // Cancel order
   static async cancelOrder(orderId: string, reason?: string): Promise<void> {
     try {
+      const nowISO = new Date().toISOString();
+
       await updateDoc(doc(db, this.ordersCollection, orderId), {
         status: "cancelled",
         cancelReason: reason,
-        cancelledAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        cancelledAt: nowISO,
+        updatedAt: nowISO,
         isCancellable: false,
       });
     } catch (error) {
       console.error("Error cancelling order:", error);
       throw error;
     }
+  }
+
+  // Refresh single order
+  static async refreshOrder(orderId: string): Promise<Order | null> {
+    return this.getOrderById(orderId);
   }
 }

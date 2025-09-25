@@ -293,6 +293,28 @@ export interface TimeSlotInfo {
   endsAt: Date;
 }
 
+export interface Notification {
+  id: string;
+  type: "admin_order_placed" | "customer_order_placed" | "order_update" | "offer" | "info" | "delivery_update" | "payment_verified" | "payment_rejected";
+  title: string;
+  message: string;
+  orderId?: string;
+  orderNumber?: string;
+  customerId?: string;
+  customerName?: string;
+  customerEmail?: string;
+  total?: number;
+  targetAudience: "admin" | "customer";
+  isRead: boolean;
+  priority: "low" | "normal" | "high";
+  createdAt: Date;
+  icon?: string;
+  // Payment verification specific fields
+  paymentMethod?: string;
+  verificationStatus?: "pending" | "verified" | "rejected";
+  rejectionReason?: string;
+}
+
 export type OrderStatus = 
   | 'placed' 
   | 'confirmed' 

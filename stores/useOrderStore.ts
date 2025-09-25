@@ -1,10 +1,11 @@
 // stores/useOrderStore.ts
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
-import { FirebaseOrderService } from "@/lib/firebase-order-service";
+import { FirebaseOrderService, OrdersQueryResult } from "@/lib/firebase-order-service";
 import { FirebaseSettingsService } from "@/lib/firebase-settings-service";
 import { toast } from "@/hooks/use-toast";
 import type { Order, CartItem, Address, UpiPaymentMethod } from "@/types";
+import { DocumentSnapshot } from "firebase/firestore";
 
 // Extended interface for order creation
 interface OrderCreationPaymentDetails {
@@ -20,9 +21,19 @@ interface OrderState {
   currentOrder: Order | null;
   upiMethods: UpiPaymentMethod[];
   loading: boolean;
+  loadingMore: boolean;
   placing: boolean;
   uploading: boolean;
   uploadProgress: number;
+  refreshing: boolean;
+
+  // Pagination
+  lastDoc: DocumentSnapshot | null;
+  hasMore: boolean;
+  totalOrders: number;
+
+  // Error handling
+  error: string | null;
 
   // Actions
   createOrder: (orderData: {
@@ -44,11 +55,16 @@ interface OrderState {
     specialInstructions?: string;
   }) => Promise<Order | null>;
 
-  fetchUserOrders: (userId: string) => Promise<void>;
+  fetchUserOrders: (userId: string, refresh?: boolean) => Promise<void>;
+  loadMoreOrders: (userId: string) => Promise<void>;
+  refreshOrders: (userId: string) => Promise<void>;
+  refreshSingleOrder: (orderId: string) => Promise<void>;
   fetchUpiMethods: () => Promise<void>;
   uploadReceipt: (file: File) => Promise<string | null>;
   cancelOrder: (orderId: string, reason?: string) => Promise<void>;
+  clearOrders: () => void;
   clearCurrentOrder: () => void;
+  clearError: () => void;
 }
 
 // Direct Cloudinary upload function
@@ -56,7 +72,7 @@ const uploadImageToCloudinary = async (file: File): Promise<string> => {
   const cloudinaryData = new FormData();
   cloudinaryData.append("file", file);
   cloudinaryData.append("upload_preset", "Images");
-  cloudinaryData.append("asset_folder", "Receipts"); // Fixed typo here
+  cloudinaryData.append("asset_folder", "Receipts");
   cloudinaryData.append("cloud_name", "dqoo1d1ip");
 
   const response = await fetch(
@@ -82,12 +98,18 @@ export const useOrderStore = create<OrderState>()(
     currentOrder: null,
     upiMethods: [],
     loading: false,
+    loadingMore: false,
     placing: false,
     uploading: false,
     uploadProgress: 0,
+    refreshing: false,
+    lastDoc: null,
+    hasMore: true,
+    totalOrders: 0,
+    error: null,
 
     createOrder: async (orderData) => {
-      set({ placing: true });
+      set({ placing: true, error: null });
 
       try {
         console.log("Starting order creation with data:", orderData);
@@ -207,6 +229,10 @@ export const useOrderStore = create<OrderState>()(
               });
             }
           }
+        } else if (orderData.paymentMethod === "cash_on_delivery") {
+          finalPaymentDetails = {
+            verificationStatus: "pending" as const,
+          };
         }
 
         // Create clean delivery slot
@@ -254,15 +280,16 @@ export const useOrderStore = create<OrderState>()(
 
         console.log("Order created successfully:", order);
 
-        // Make sure to set currentOrder before resolving
+        // Add new order to the beginning of the list
         set((state) => ({
           currentOrder: order,
           orders: [order, ...state.orders],
           placing: false,
+          totalOrders: state.totalOrders + 1,
         }));
 
         toast({
-          title: "Order Placed Successfully!",
+          title: "Order Placed Successfully! 🎉",
           description: `Your order ${order.orderNumber} has been placed.`,
         });
 
@@ -277,11 +304,15 @@ export const useOrderStore = create<OrderState>()(
           console.error("Error stack:", error.stack);
         }
 
-        set({ placing: false, uploading: false, uploadProgress: 0 });
-
-        // Show more specific error message
         const errorMessage =
           error instanceof Error ? error.message : "Unknown error occurred";
+
+        set({ 
+          placing: false, 
+          uploading: false, 
+          uploadProgress: 0,
+          error: errorMessage
+        });
 
         toast({
           title: "Order Failed",
@@ -293,19 +324,110 @@ export const useOrderStore = create<OrderState>()(
       }
     },
 
-    fetchUserOrders: async (userId) => {
-      set({ loading: true });
+    fetchUserOrders: async (userId, refresh = false) => {
+      if (refresh) {
+        set({ refreshing: true, error: null });
+      } else {
+        set({ loading: true, error: null });
+      }
 
       try {
-        const orders = await FirebaseOrderService.getUserOrders(userId);
-        set({ orders, loading: false });
+        const result: OrdersQueryResult = await FirebaseOrderService.getUserOrdersPaginated(userId, 10);
+
+        set({
+          orders: result.orders,
+          lastDoc: result.lastDoc,
+          hasMore: result.hasMore,
+          totalOrders: result.total,
+          loading: false,
+          refreshing: false,
+        });
       } catch (error) {
         console.error("Error fetching orders:", error);
-        set({ loading: false });
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to load orders";
+
+        set({
+          loading: false,
+          refreshing: false,
+          error: errorMessage,
+        });
 
         toast({
           title: "Error",
-          description: "Failed to load orders.",
+          description: errorMessage,
+          variant: "destructive",
+        });
+      }
+    },
+
+    loadMoreOrders: async (userId) => {
+      const { hasMore, lastDoc, loadingMore } = get();
+
+      if (!hasMore || loadingMore) return;
+
+      set({ loadingMore: true, error: null });
+
+      try {
+        const result: OrdersQueryResult = await FirebaseOrderService.getUserOrdersPaginated(
+          userId,
+          10,
+          lastDoc
+        );
+
+        set((state) => ({
+          orders: [...state.orders, ...result.orders],
+          lastDoc: result.lastDoc,
+          hasMore: result.hasMore,
+          loadingMore: false,
+        }));
+      } catch (error) {
+        console.error("Error loading more orders:", error);
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to load more orders";
+
+        set({
+          loadingMore: false,
+          error: errorMessage,
+        });
+
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        });
+      }
+    },
+
+    refreshOrders: async (userId) => {
+      await get().fetchUserOrders(userId, true);
+    },
+
+    refreshSingleOrder: async (orderId) => {
+      try {
+        const refreshedOrder = await FirebaseOrderService.refreshOrder(orderId);
+
+        if (refreshedOrder) {
+          set((state) => ({
+            orders: state.orders.map((order) =>
+              order.id === orderId ? refreshedOrder : order
+            ),
+            currentOrder:
+              state.currentOrder?.id === orderId
+                ? refreshedOrder
+                : state.currentOrder,
+          }));
+
+          toast({
+            title: "Order Updated",
+            description: "Order information has been refreshed.",
+          });
+        }
+      } catch (error) {
+        console.error("Error refreshing order:", error);
+        toast({
+          title: "Refresh Failed",
+          description: "Failed to refresh order information.",
           variant: "destructive",
         });
       }
@@ -395,8 +517,22 @@ export const useOrderStore = create<OrderState>()(
       }
     },
 
+    clearOrders: () => {
+      set({
+        orders: [],
+        lastDoc: null,
+        hasMore: true,
+        totalOrders: 0,
+        error: null,
+      });
+    },
+
     clearCurrentOrder: () => {
       set({ currentOrder: null });
+    },
+
+    clearError: () => {
+      set({ error: null });
     },
   }))
 );
