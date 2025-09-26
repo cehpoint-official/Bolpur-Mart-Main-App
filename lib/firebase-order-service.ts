@@ -114,28 +114,28 @@ export class FirebaseOrderService {
               ? typeof data.orderTracking.confirmedAt === "string"
                 ? new Date(data.orderTracking.confirmedAt)
                 : data.orderTracking.confirmedAt.toDate()
-              : undefined,
+              : new Date(),
             preparingAt: data.orderTracking?.preparingAt
               ? typeof data.orderTracking.preparingAt === "string"
                 ? new Date(data.orderTracking.preparingAt)
                 : data.orderTracking.preparingAt.toDate()
-              : undefined,
+              : new Date(),
             outForDeliveryAt: data.orderTracking?.outForDeliveryAt
               ? typeof data.orderTracking.outForDeliveryAt === "string"
                 ? new Date(data.orderTracking.outForDeliveryAt)
                 : data.orderTracking.outForDeliveryAt.toDate()
-              : undefined,
+              : new Date(),
             deliveredAt: data.orderTracking?.deliveredAt
               ? typeof data.orderTracking.deliveredAt === "string"
                 ? new Date(data.orderTracking.deliveredAt)
                 : data.orderTracking.deliveredAt.toDate()
-              : undefined,
+              : new Date(),
           },
           reviewedAt: data.reviewedAt
             ? typeof data.reviewedAt === "string"
               ? new Date(data.reviewedAt)
               : data.reviewedAt.toDate()
-            : undefined,
+            : new Date(),
         } as Order);
       });
 
@@ -255,8 +255,8 @@ export class FirebaseOrderService {
         paymentMethod: orderData.paymentMethod,
         paymentDetails: finalPaymentDetails,
         deliverySlot,
-        notes: orderData.notes,
-        specialInstructions: orderData.specialInstructions,
+        notes: orderData.notes || "",
+        specialInstructions: orderData.specialInstructions || "",
         orderTracking: {
           placedAt: now,
         },
@@ -283,6 +283,8 @@ export class FirebaseOrderService {
           placedAt: nowISO,
         },
       };
+      console.log("Creating order in Firestore:", firestoreOrder);
+      
 
       const docRef = await addDoc(
         collection(db, this.ordersCollection),

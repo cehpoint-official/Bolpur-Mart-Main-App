@@ -1,7 +1,10 @@
 // stores/useOrderStore.ts
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
-import { FirebaseOrderService, OrdersQueryResult } from "@/lib/firebase-order-service";
+import {
+  FirebaseOrderService,
+  OrdersQueryResult,
+} from "@/lib/firebase-order-service";
 import { FirebaseSettingsService } from "@/lib/firebase-settings-service";
 import { toast } from "@/hooks/use-toast";
 import type { Order, CartItem, Address, UpiPaymentMethod } from "@/types";
@@ -270,8 +273,8 @@ export const useOrderStore = create<OrderState>()(
           paymentMethod: orderData.paymentMethod,
           paymentDetails: finalPaymentDetails,
           deliverySlot: cleanDeliverySlot,
-          notes: orderData.notes,
-          specialInstructions: orderData.specialInstructions,
+          notes: orderData.notes || "",
+          specialInstructions: orderData.specialInstructions || "",
         };
 
         console.log("Creating order with final data:", finalOrderData);
@@ -307,16 +310,16 @@ export const useOrderStore = create<OrderState>()(
         const errorMessage =
           error instanceof Error ? error.message : "Unknown error occurred";
 
-        set({ 
-          placing: false, 
-          uploading: false, 
+        set({
+          placing: false,
+          uploading: false,
           uploadProgress: 0,
-          error: errorMessage
+          error: errorMessage,
         });
 
         toast({
           title: "Order Failed",
-          description: `Failed to place order: ${errorMessage}`,
+          description: `Failed to place order: ${error}`,
           variant: "destructive",
         });
 
@@ -332,7 +335,8 @@ export const useOrderStore = create<OrderState>()(
       }
 
       try {
-        const result: OrdersQueryResult = await FirebaseOrderService.getUserOrdersPaginated(userId, 10);
+        const result: OrdersQueryResult =
+          await FirebaseOrderService.getUserOrdersPaginated(userId, 10);
 
         set({
           orders: result.orders,
@@ -369,11 +373,12 @@ export const useOrderStore = create<OrderState>()(
       set({ loadingMore: true, error: null });
 
       try {
-        const result: OrdersQueryResult = await FirebaseOrderService.getUserOrdersPaginated(
-          userId,
-          10,
-          lastDoc
-        );
+        const result: OrdersQueryResult =
+          await FirebaseOrderService.getUserOrdersPaginated(
+            userId,
+            10,
+            lastDoc
+          );
 
         set((state) => ({
           orders: [...state.orders, ...result.orders],

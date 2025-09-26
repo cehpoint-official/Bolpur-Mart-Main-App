@@ -76,6 +76,8 @@ export default function Checkout() {
     uploading,
     uploadProgress,
     clearCurrentOrder,
+    error: orderError,
+    clearError,
   } = useOrderStore();
 
   // Static tax amount for MVP
@@ -110,8 +112,10 @@ export default function Checkout() {
 
       return validProducts;
     },
-    enabled: cartItems.length > 0 && cartInitialized, // Only fetch when cart is initialized
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    enabled: cartItems.length > 0 && cartInitialized,
+    staleTime: 5 * 60 * 1000,
+    retry: 3,
+    retryDelay: 1000,
   });
 
   // Create cart items with product details
@@ -124,7 +128,7 @@ export default function Checkout() {
           product,
         };
       })
-      .filter((item) => item.product); // Only keep items with valid products
+      .filter((item) => item.product);
   }, [cartItems, products]);
 
   // State management
@@ -238,6 +242,22 @@ export default function Checkout() {
       loadCheckoutData();
     }
   }, [user?.uid, fetchUpiMethods, addresses, authLoading]);
+
+  // Clear errors on component mount and when dependencies change
+  useEffect(() => {
+    clearError();
+  }, [clearError, paymentMethod, selectedAddress]);
+
+  // Watch for successful order creation
+  useEffect(() => {
+    if (currentOrder && !placing && !orderError) {
+      console.log(
+        "Order created successfully, showing confirmation:",
+        currentOrder
+      );
+      setShowOrderConfirmation(true);
+    }
+  }, [currentOrder, placing, orderError]);
 
   // Calculate cart summary with products
   const cartSummary: CartSummary = useMemo(() => {
@@ -377,7 +397,7 @@ export default function Checkout() {
   };
 
   const copyUpiId = async () => {
-    const selectedUpiMethod = upiMethods[0]; // Use first available UPI method
+    const selectedUpiMethod = upiMethods[0];
     if (!selectedUpiMethod) return;
 
     try {
@@ -395,41 +415,65 @@ export default function Checkout() {
     }
   };
 
-  const handlePlaceOrder = async () => {
+  const validateOrderData = () => {
+    const errors: string[] = [];
+
     if (cartItemsWithProducts.length === 0) {
-      toast({
-        title: "Cart is empty",
-        description: "Add some items to your cart first",
-        variant: "destructive",
-      });
-      return;
+      errors.push("Cart is empty");
     }
 
     if (!selectedAddress) {
-      toast({
-        title: "Select Address",
-        description: "Please select a delivery address",
-        variant: "destructive",
-      });
-      return;
+      errors.push("Please select a delivery address");
     }
 
     if (deliverySlot === "scheduled" && (!scheduledDate || !scheduledTime)) {
-      toast({
-        title: "Set Delivery Time",
-        description: "Please set your preferred delivery time",
-        variant: "destructive",
-      });
-      return;
+      errors.push("Please set your preferred delivery time");
     }
 
+    if (paymentMethod === "upi_online") {
+      if (!upiTransactionId?.trim()) {
+        errors.push("Please provide UPI transaction ID");
+      }
+      if (!paymentScreenshot) {
+        errors.push("Please upload payment screenshot");
+      }
+      if (upiMethods.length === 0) {
+        errors.push("UPI payment methods are not available");
+      }
+    }
+
+    // Validate cart items have products
+    const invalidItems = cartItemsWithProducts.filter((item) => !item.product);
+    if (invalidItems.length > 0) {
+      errors.push(
+        `${invalidItems.length} items are missing product information`
+      );
+    }
+
+    // Validate address exists
     if (
-      paymentMethod === "upi_online" &&
-      (!upiTransactionId || !paymentScreenshot)
+      selectedAddress &&
+      !addresses.find((addr: Address) => addr.id === selectedAddress)
     ) {
+      errors.push("Selected address is no longer valid");
+    }
+
+    return errors;
+  };
+
+  const handlePlaceOrder = async () => {
+    console.log("Starting order placement process...");
+
+    // Clear any previous errors
+    clearError();
+
+    // Validate order data
+    const validationErrors = validateOrderData();
+    if (validationErrors.length > 0) {
+      console.log("Validation errors:", validationErrors);
       toast({
-        title: "Payment Details Required",
-        description: "Please provide UPI transaction ID and payment screenshot",
+        title: "Please fix the following:",
+        description: validationErrors.join(", "),
         variant: "destructive",
       });
       return;
@@ -438,12 +482,32 @@ export default function Checkout() {
     setIsPlacingOrder(true);
 
     try {
+      console.log("Validation passed, creating order...");
+
       const selectedAddr = addresses.find(
         (addr: Address) => addr.id === selectedAddress
-      )!;
+      );
+
+      if (!selectedAddr) {
+        throw new Error("Selected address not found");
+      }
+
       const selectedSlot = deliverySlots.find(
         (slot) => slot.id === deliverySlot
-      )!;
+      );
+
+      if (!selectedSlot) {
+        throw new Error("Selected delivery slot not found");
+      }
+
+      // Ensure all cart items have valid products
+      const validCartItems = cartItemsWithProducts.filter(
+        (item) => item.product
+      );
+
+      if (validCartItems.length === 0) {
+        throw new Error("No valid products in cart");
+      }
 
       const orderData = {
         customerId: user!.uid,
@@ -451,13 +515,13 @@ export default function Checkout() {
         customerPhone: user!.customData?.phone || selectedAddr.receiverPhone,
         customerEmail: user!.email || user!.customData?.email || "",
         deliveryAddress: selectedAddr,
-        cartItems: cartItemsWithProducts,
+        cartItems: validCartItems,
         paymentMethod,
         ...(paymentMethod === "upi_online" && {
           paymentDetails: {
-            upiTransactionId,
+            upiTransactionId: upiTransactionId.trim(),
             upiId: upiMethods[0]?.upiId || "",
-            receiptFile: paymentScreenshot || null,
+            receiptFile: paymentScreenshot,
           },
         }),
         deliverySlot: {
@@ -470,20 +534,25 @@ export default function Checkout() {
               scheduledTime: `${scheduledTime} ${scheduledPeriod}`,
             }),
         },
-        notes: orderNotes || "",
+        notes: orderNotes.trim() || "",
         specialInstructions: "",
       };
+
+      console.log("Order data prepared:", orderData);
 
       const order = await createOrder(orderData);
 
       if (order) {
-        // Clear cart after successful order
-        await clearCart();
+        console.log("Order created successfully:", order);
 
-        // Add a small delay to ensure currentOrder is set
-        setTimeout(() => {
-          setShowOrderConfirmation(true);
-        }, 100);
+        // Clear cart after successful order
+        try {
+          await clearCart();
+          console.log("Cart cleared successfully");
+        } catch (cartError) {
+          console.error("Error clearing cart:", cartError);
+          // Don't fail the entire process for cart clearing
+        }
 
         // Reset form
         setUpiTransactionId("");
@@ -496,30 +565,45 @@ export default function Checkout() {
         setShowTimeDialog(false);
 
         toast({
-          title: "Order Placed Successfully!",
-          description: "Your order has been confirmed.",
+          title: "Order Placed Successfully! 🎉",
+          description: `Your order ${order.orderNumber} has been placed.`,
         });
+
+        // The confirmation dialog will be shown by the useEffect watching currentOrder
       } else {
-        // Handle case where order creation failed but didn't throw an error
-        throw new Error("Order creation failed - no order returned");
+        throw new Error("Order creation returned null");
       }
     } catch (error) {
       console.error("Order placement failed:", error);
+
+      let errorMessage = "Unable to place order. Please try again.";
+
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        console.error("Error details:", {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        });
+      }
+
       toast({
         title: "Order Failed",
-        description: "Unable to place order. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
       setIsPlacingOrder(false);
     }
   };
+
   const getUserId = () => {
     if (isAuthenticated && user) {
       return user.uid;
     }
     return "guest-user";
   };
+
   useEffect(() => {
     const userId = getUserId();
     const actualUserId = userId === "guest-user" ? null : userId;
@@ -614,6 +698,7 @@ export default function Checkout() {
       </MobileLayout>
     );
   }
+
   return (
     <MobileLayout
       title="Checkout"
@@ -621,6 +706,26 @@ export default function Checkout() {
       showBottomNav={false}
     >
       <div className="space-y-4 px-4 pt-4 pb-32">
+        {/* Show order error if exists */}
+        {orderError && (
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="pt-4">
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-red-600" />
+                <p className="text-sm text-red-800">{orderError}</p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={clearError}
+                  className="ml-auto text-red-600"
+                >
+                  ✕
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Delivery Address */}
         <Card className="mobile-card-hover">
           <CardHeader className="pb-3">
@@ -764,7 +869,6 @@ export default function Checkout() {
                   </DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
-                  {/* Date Selection */}
                   <div>
                     <Label className="text-sm font-medium">Select Date</Label>
                     <Select
@@ -784,7 +888,6 @@ export default function Checkout() {
                     </Select>
                   </div>
 
-                  {/* Time Selection */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <Label className="text-sm font-medium">Time</Label>
@@ -1214,11 +1317,12 @@ export default function Checkout() {
           disabled={
             isPlacingOrder ||
             placing ||
+            uploading ||
             !selectedAddress ||
             (deliverySlot === "scheduled" &&
               (!scheduledDate || !scheduledTime)) ||
             (paymentMethod === "upi_online" &&
-              (!upiTransactionId || !paymentScreenshot))
+              (!upiTransactionId?.trim() || !paymentScreenshot))
           }
           className="w-full py-3 text-lg font-bold"
           size="lg"
@@ -1226,7 +1330,11 @@ export default function Checkout() {
           {isPlacingOrder || placing ? (
             <div className="flex items-center space-x-2">
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              <span>Placing Order...</span>
+              <span>
+                {uploading
+                  ? `Uploading... ${uploadProgress}%`
+                  : "Placing Order..."}
+              </span>
             </div>
           ) : (
             <>
@@ -1245,7 +1353,7 @@ export default function Checkout() {
         )}
       </div>
 
-      {/* Order Confirmation Dialog */}z
+      {/* Order Confirmation Dialog */}
       <OrderConfirmationDialog
         isOpen={showOrderConfirmation}
         order={currentOrder}

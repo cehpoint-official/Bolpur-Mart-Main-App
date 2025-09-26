@@ -1,4 +1,3 @@
-// components/ui/notification-bell.tsx
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -38,42 +37,217 @@ export function NotificationBell({
   >([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [markingAsRead, setMarkingAsRead] = useState<string>("");
   const [showAll, setShowAll] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(false);
 
   // Constants for UI limits
-  const INITIAL_DISPLAY_LIMIT = 8; // Show only 8 notifications initially
-  const MAX_NOTIFICATIONS = 50; // Maximum notifications to keep in memory
+  const INITIAL_DISPLAY_LIMIT = 8;
+  const MAX_NOTIFICATIONS = 50;
 
   // Audio reference for notification sound
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
-  const prevNotificationCountRef = useRef<number>(0);
+  const notificationIdsRef = useRef<Set<string>>(new Set());
+  const hasInitializedRef = useRef<boolean>(false);
 
   // Initialize audio
   useEffect(() => {
-    audioRef.current = new Audio("/sounds/notification-sound.mp3");
-    audioRef.current.volume = 0.7;
-    audioRef.current.preload = "auto";
+    const initializeAudio = async () => {
+      const audioSources = [
+        "/public/sounds/notification-sound.mp3",
+        "/sounds/notification-sound.mp3",
+      ];
 
-    return () => {
-      if (audioRef.current) {
-        audioRef.current = null;
+      for (const source of audioSources) {
+        try {
+          const audio = new Audio();
+
+          const canLoad = new Promise<boolean>((resolve) => {
+            const timeout = setTimeout(() => resolve(false), 3000);
+
+            const handleSuccess = () => {
+              clearTimeout(timeout);
+              audio.removeEventListener("canplay", handleSuccess);
+              audio.removeEventListener("loadeddata", handleSuccess);
+              audio.removeEventListener("error", handleError);
+              resolve(true);
+            };
+
+            const handleError = () => {
+              clearTimeout(timeout);
+              audio.removeEventListener("canplay", handleSuccess);
+              audio.removeEventListener("loadeddata", handleSuccess);
+              audio.removeEventListener("error", handleError);
+              resolve(false);
+            };
+
+            audio.addEventListener("canplay", handleSuccess);
+            audio.addEventListener("loadeddata", handleSuccess);
+            audio.addEventListener("error", handleError);
+
+            audio.src = source;
+            audio.load();
+          });
+
+          const loaded = await canLoad;
+
+          if (loaded) {
+            audio.volume = 1.5;
+            audio.preload = "auto";
+            audioRef.current = audio;
+            break;
+          }
+        } catch (error) {
+          continue;
+        }
       }
     };
+
+    initializeAudio();
   }, []);
 
-  // Play notification sound
-  const playNotificationSound = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch((error) => {
-        console.log("Could not play notification sound:", error);
-      });
+  // Create fallback sound using Web Audio API
+  const playFallbackSound = useCallback(() => {
+    try {
+      const audioContext = new (window.AudioContext ||
+        (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+      oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
+      oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.2);
+
+      gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(
+        0.01,
+        audioContext.currentTime + 0.4
+      );
+
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.4);
+
+      setAudioEnabled(true);
+    } catch (error) {
+      // Silent error handling
     }
   }, []);
+
+  // Enable audio on user interaction
+  const enableAudio = useCallback(async () => {
+    if (audioEnabled) return;
+
+    if (audioRef.current) {
+      try {
+        audioRef.current.currentTime = 0;
+        const playPromise = audioRef.current.play();
+
+        if (playPromise !== undefined) {
+          await playPromise;
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+          setAudioEnabled(true);
+        }
+      } catch (error) {
+        playFallbackSound();
+      }
+    } else {
+      playFallbackSound();
+    }
+  }, [audioEnabled, playFallbackSound]);
+
+  // Set up interaction listeners
+  useEffect(() => {
+    const handleUserInteraction = async () => {
+      await enableAudio();
+    };
+
+    if (!audioEnabled) {
+      document.addEventListener("click", handleUserInteraction, {
+        once: true,
+        passive: true,
+      });
+      document.addEventListener("touchstart", handleUserInteraction, {
+        once: true,
+        passive: true,
+      });
+      document.addEventListener("keydown", handleUserInteraction, {
+        once: true,
+        passive: true,
+      });
+    }
+
+    return () => {
+      document.removeEventListener("click", handleUserInteraction);
+      document.removeEventListener("touchstart", handleUserInteraction);
+      document.removeEventListener("keydown", handleUserInteraction);
+    };
+  }, [audioEnabled, enableAudio]);
+
+  // Play notification sound
+  const playNotificationSound = useCallback(async () => {
+    if (audioRef.current && audioEnabled) {
+      try {
+        audioRef.current.currentTime = 0;
+        const playPromise = audioRef.current.play();
+
+        if (playPromise !== undefined) {
+          await playPromise;
+          return;
+        }
+      } catch (error) {
+        // Fallback to beep sound on error
+      }
+    }
+
+    // Use fallback sound
+    playFallbackSound();
+  }, [audioEnabled, playFallbackSound]);
+
+  // Detect new notifications and play sound
+  useEffect(() => {
+    if (!hasInitializedRef.current || isLoading) {
+      notificationIdsRef.current = new Set(notifications.map((n) => n.id));
+      return;
+    }
+
+    const currentIds = new Set(notifications.map((n) => n.id));
+    const previousIds = notificationIdsRef.current;
+
+    const newNotificationIds = Array.from(currentIds).filter(
+      (id) => !previousIds.has(id)
+    );
+
+    if (newNotificationIds.length > 0) {
+      const newNotifications = notifications.filter(
+        (n) => newNotificationIds.includes(n.id) && !n.isRead
+      );
+
+      if (newNotifications.length > 0) {
+        playNotificationSound();
+
+        // Show toast for new notifications
+        newNotifications.forEach((notification) => {
+          toast({
+            title: notification.title,
+            description: notification.message,
+            variant:
+              notification.type === "payment_rejected"
+                ? "destructive"
+                : "default",
+          });
+        });
+      }
+    }
+
+    // Update the tracking set
+    notificationIdsRef.current = currentIds;
+  }, [notifications, isLoading, playNotificationSound]);
 
   // Update displayed notifications based on showAll state
   useEffect(() => {
@@ -88,7 +262,7 @@ export function NotificationBell({
         );
       }
     }
-  }, [notifications, showAll, INITIAL_DISPLAY_LIMIT, MAX_NOTIFICATIONS]);
+  }, [notifications, showAll]);
 
   // Format time ago
   const formatTimeAgo = (date: Date) => {
@@ -157,21 +331,31 @@ export function NotificationBell({
     return notification.isRead ? "" : "bg-blue-50/50";
   };
 
-  // Load notifications when user is authenticated
+  // Load notifications automatically when user is authenticated
   useEffect(() => {
     if (!isAuthenticated || !user?.uid) {
       setNotifications([]);
       setUnreadCount(0);
-      setInitialLoading(false);
+      setIsLoading(false);
+      hasInitializedRef.current = false;
+      notificationIdsRef.current = new Set();
+
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
       return;
     }
 
-    // Subscribe to real-time notifications
+    if (!hasInitializedRef.current) {
+      setIsLoading(true);
+      hasInitializedRef.current = true;
+    }
+
     const unsubscribe =
       FirebaseNotificationService.subscribeToUserNotifications(
         user.uid,
         (newNotifications) => {
-          // Limit notifications to prevent memory issues
           const limitedNotifications = newNotifications.slice(
             0,
             MAX_NOTIFICATIONS
@@ -182,43 +366,15 @@ export function NotificationBell({
             (n) => !n.isRead
           ).length;
 
-          // Play sound only if unread count increased (new notification received)
-          // And only after initial loading is complete
-          if (
-            newUnreadCount > prevNotificationCountRef.current &&
-            prevNotificationCountRef.current >= 0 &&
-            !initialLoading
-          ) {
-            playNotificationSound();
-
-            // Show toast for new notification with special handling for payment notifications
-            const latestNotification = limitedNotifications[0];
-            if (latestNotification && !latestNotification.isRead) {
-              toast({
-                title: latestNotification.title,
-                description: latestNotification.message,
-                variant:
-                  latestNotification.type === "payment_rejected"
-                    ? "destructive"
-                    : "default",
-              });
-            }
-          }
-
           setUnreadCount(newUnreadCount);
-          prevNotificationCountRef.current = newUnreadCount;
-          setInitialLoading(false);
-          setRefreshing(false);
+          setIsLoading(false);
 
-          // Call callback if provided
           if (onNotificationCount) {
             onNotificationCount(newUnreadCount);
           }
         },
         (error) => {
-          console.error("Error subscribing to notifications:", error);
-          setInitialLoading(false);
-          setRefreshing(false);
+          setIsLoading(false);
         }
       );
 
@@ -229,32 +385,20 @@ export function NotificationBell({
         unsubscribeRef.current();
       }
     };
-  }, [
-    isAuthenticated,
-    user?.uid,
-    onNotificationCount,
-    playNotificationSound,
-    initialLoading,
-    MAX_NOTIFICATIONS,
-  ]);
+  }, [isAuthenticated, user?.uid, onNotificationCount]);
 
   // Handle notification bell click
   const handleNotificationClick = async () => {
-    if (!showNotifications) {
-      // Opening dropdown - set refreshing if we have no notifications yet
-      if (notifications.length === 0 && !initialLoading) {
-        setRefreshing(true);
-      }
-    }
+    // Enable audio on user interaction
+    await enableAudio();
 
     setShowNotifications(!showNotifications);
 
     if (!showNotifications && unreadCount > 0 && user?.uid) {
-      // Mark all as read when opening notification panel
       try {
         await FirebaseNotificationService.markAllNotificationsAsRead(user.uid);
       } catch (error) {
-        console.error("Error marking notifications as read:", error);
+        // Silent error handling
       }
     }
   };
@@ -268,7 +412,7 @@ export function NotificationBell({
           notification.id
         );
       } catch (error) {
-        console.error("Error marking notification as read:", error);
+        // Silent error handling
       } finally {
         setMarkingAsRead("");
       }
@@ -289,7 +433,7 @@ export function NotificationBell({
         !target.closest('[data-testid="notifications-dropdown"]')
       ) {
         setShowNotifications(false);
-        setShowAll(false); // Reset to show limited on close
+        setShowAll(false);
       }
     };
 
@@ -299,7 +443,6 @@ export function NotificationBell({
     };
   }, [showNotifications]);
 
-  // Don't show anything if not authenticated
   if (!isAuthenticated || !user?.uid) {
     return null;
   }
@@ -309,7 +452,6 @@ export function NotificationBell({
 
   return (
     <div className="relative">
-      {/* Notification Bell Button - Always shows bell icon */}
       <Button
         variant="ghost"
         size="icon"
@@ -318,40 +460,27 @@ export function NotificationBell({
         data-testid="notifications-button"
       >
         <Bell size={20} />
-
-        {/* Unread Count Badge */}
         {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-white text-xs rounded-full flex items-center justify-center font-medium animate-pulse">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
-
-        {/* Small loading indicator dot when refreshing (optional) */}
-        {refreshing && (
+        {isLoading && (
           <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
         )}
       </Button>
 
-      {/* Notification Dropdown */}
       {showNotifications && (
         <div
           className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-[60] animate-in slide-in-from-top-2 duration-200"
           data-testid="notifications-dropdown"
         >
-          {/* Header */}
           <div className="p-4 border-b border-gray-100">
             <div className="flex items-center justify-between">
               <div>
-                <div className="flex items-center space-x-2">
-                  <h3 className="font-semibold text-lg">Notifications</h3>
-                  {refreshing && (
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  )}
-                </div>
+                <h3 className="font-semibold text-lg">Notifications</h3>
                 <p className="text-sm text-muted-foreground">
-                  {refreshing
-                    ? "Loading notifications..."
-                    : unreadCount > 0
+                  {unreadCount > 0
                     ? `${unreadCount} new notifications`
                     : notifications.length > 0
                     ? `${notifications.length} total notifications`
@@ -363,7 +492,7 @@ export function NotificationBell({
                 size="icon"
                 onClick={() => {
                   setShowNotifications(false);
-                  setShowAll(false); // Reset when closing
+                  setShowAll(false);
                 }}
                 className="h-8 w-8"
               >
@@ -372,9 +501,8 @@ export function NotificationBell({
             </div>
           </div>
 
-          {/* Notifications List */}
           <div className="max-h-80 overflow-y-auto custom-scrollbar">
-            {refreshing && notifications.length === 0 ? (
+            {isLoading ? (
               <div className="p-8 text-center">
                 <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
                 <p className="text-sm text-muted-foreground">
@@ -440,7 +568,6 @@ export function NotificationBell({
                             {notification.message}
                           </p>
 
-                          {/* Show payment method for payment notifications */}
                           {(notification.type === "payment_verified" ||
                             notification.type === "payment_rejected") &&
                             notification.paymentMethod && (
@@ -485,7 +612,6 @@ export function NotificationBell({
                   );
                 })}
 
-                {/* Show More/Less Button */}
                 {hasMoreNotifications && (
                   <div className="p-3 border-t border-gray-100 bg-gray-50/50">
                     <Button
@@ -508,25 +634,12 @@ export function NotificationBell({
                     </Button>
                   </div>
                 )}
-
-                {/* Show loading indicator at bottom when refreshing existing notifications */}
-                {refreshing && notifications.length > 0 && (
-                  <div className="p-4 text-center border-t border-gray-100">
-                    <div className="flex items-center justify-center space-x-2">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <span className="text-sm text-muted-foreground">
-                        Checking for updates...
-                      </span>
-                    </div>
-                  </div>
-                )}
               </>
             )}
           </div>
         </div>
       )}
 
-      {/* Custom Scrollbar Styles */}
       <style jsx>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 4px;
